@@ -1,4 +1,4 @@
-# perf-demo: APM 성능 병목 분석 교육용 데모
+# perf-demo: 성능 테스트 실습 교육용 데모
 
 ## 개요
 
@@ -12,7 +12,7 @@ Scouter APM + JMeter를 활용한 성능 병목 분석 교육용 애플리케이
 | Java | 17 (Eclipse Adoptium) |
 | Spring Boot | 3.2.1 |
 | MyBatis | 3.0.3 |
-| DB | H2 In-Memory (기본) / Oracle 19c (선택) |
+| DB | H2 In-Memory  |
 | API 문서 | SpringDoc OpenAPI 2.3.0 |
 
 ## 빠른 시작
@@ -125,11 +125,11 @@ java -jar target/perf-demo-1.0.0.jar
 
 | # | 테스트 | VUser | 지속시간 | 목적 | 기본상태 |
 |---|--------|-------|----------|------|----------|
-| 1 | 단건 테스트 | 1 | 1회 | 스크립트 정상 동작 확인 | **enabled** |
+| 1 | 단건 테스트 | 1 | 1회 | 스크립트 정상 동작 확인 | disabled |
 | 2 | Baseline Before | 10 | 3분 | 병목 버전 기준선 측정 | disabled |
 | 3 | Baseline After | 10 | 3분 | 최적화 버전 기준선 측정 | disabled |
 | 4 | Load Before | 30 | 5분 | 부하 시 병목 심화 확인 | disabled |
-| 5 | Load After | 30 | 5분 | 부하 시 최적화 효과 확인 | disabled |
+| 5 | Load After | 30 | 5분 | 부하 시 최적화 효과 확인 | **enabled** |
 | 6 | Stress | 10→20→40→80 | 단계별 2분 | 한계점(Saturation) 탐색 | disabled |
 | 7 | Endurance | 20 | 30분 | 장시간 안정성, 메모리 누수 | disabled |
 
@@ -214,13 +214,3 @@ start-all.bat
 | 서버2 | 18082 | perf-demo-2 |
 | 서버3 | 18083 | perf-demo-3 |
 
-## Oracle 모드 (선택)
-
-Oracle DB 사용 시:
-
-```bash
-# 1. sql/ 스크립트 실행
-# 2. application-oracle.yml에 접속 정보 설정
-# 3. Oracle 프로파일로 기동
-java -Dspring.profiles.active=oracle -jar target/perf-demo-1.0.0.jar
-```
