@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.perfdemo.domain.order.mapper.OrderMapper">
+
+    <select id="selectById" resultType="com.example.perfdemo.domain.order.entity.PerfOrder">
+        SELECT ORDER_ID,
+               CUSTOMER_ID,
+               CUSTOMER_NAME,
+               ORDER_STATUS,
+               TOTAL_AMOUNT,
+               ORDER_DATE,
+               CREATED_AT
+          FROM PERF_ORDER
+         WHERE ORDER_ID = #{orderId}
+    </select>
+
+</mapper>

@@ -1,0 +1,25 @@
+# Build output
+target/
+
+# Runtime logs/data
+logs/
+jmeter.log
+profiling.jfr
+nul
+
+# JMeter test results
+jmeter/results/
+
+# IDE
+.idea/
+*.iml
+
+# Claude Code
+.claude/
+
+# Office temp files
+~$*
+
+# PPT / screenshots (로컬 작업물)
+*.pptx
+성능테스트 실습/

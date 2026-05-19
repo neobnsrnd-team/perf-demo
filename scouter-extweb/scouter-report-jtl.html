@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>JTL Performance Analysis</title>
+    <script src="chart.js"></script>
+    <script src="chartjs-plugin-annotation.js"></script>
+    <script src="xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Malgun Gothic', sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 10px; color: #333; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 20px; font-size: 14px; }
+
+        .config-bar {
+            background: #fff; border-radius: 8px; padding: 15px 20px;
+            margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+        }
+        .config-bar label { font-size: 13px; font-weight: bold; color: #555; }
+        .config-bar input, .config-bar select {
+            padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;
+        }
+        .config-bar button {
+            padding: 8px 20px; background: #4a90d9; color: #fff; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .config-bar button:hover { background: #357abd; }
+        .config-bar button:disabled { background: #ccc; cursor: not-allowed; }
+        .scouter-status { font-size: 12px; padding: 4px 10px; border-radius: 12px; }
+        .scouter-status.ok { background: #d4edda; color: #155724; }
+        .scouter-status.fail { background: #f8d7da; color: #721c24; }
+        #statusMsg { font-size: 12px; color: #e74c3c; margin-left: 10px; }
+
+        .drop-zone {
+            background: #fff; border: 2px dashed #ccc; border-radius: 8px;
+            padding: 40px 20px; text-align: center; color: #888; font-size: 14px;
+            margin-bottom: 20px; cursor: pointer; transition: border-color 0.2s, background 0.2s;
+        }
+        .drop-zone:hover, .drop-zone.dragover { border-color: #4a90d9; background: #f0f7ff; }
+        .drop-zone input[type="file"] { display: none; }
+        .drop-zone .file-info { color: #333; font-weight: bold; margin-top: 8px; }
+
+        .progress-wrap { display: none; margin-bottom: 16px; }
+        .progress-wrap.show { display: block; }
+        .progress-bar-bg { height: 6px; background: #e9ecef; border-radius: 3px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #4a90d9, #27ae60); border-radius: 3px; transition: width 0.3s ease; }
+        .progress-label { font-size: 12px; color: #666; margin-top: 4px; display: flex; justify-content: space-between; }
+
+        .summary-cards {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px; margin-bottom: 20px;
+        }
+        .card {
+            background: #fff; border-radius: 8px; padding: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center;
+        }
+        .card .label { font-size: 12px; color: #888; margin-bottom: 5px; }
+        .card .value { font-size: 22px; font-weight: bold; color: #333; }
+        .card .unit { font-size: 11px; color: #aaa; margin-left: 2px; }
+
+        .section-title {
+            font-size: 16px; font-weight: bold; color: #333; margin: 25px 0 12px 0;
+            padding-bottom: 6px; border-bottom: 2px solid #4a90d9;
+        }
+        .section-badge {
+            font-size: 11px; padding: 2px 8px; border-radius: 10px;
+            color: #fff; font-weight: normal; margin-left: 8px;
+        }
+        .section-badge.load { background: #4a90d9; }
+        .section-badge.endurance { background: #27ae60; }
+        .section-badge.scouter { background: #e67e22; }
+
+        .chart-row {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 15px; margin-bottom: 15px;
+        }
+        .chart-box {
+            background: #fff; border-radius: 8px; padding: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .chart-box h3 { font-size: 13px; color: #555; margin-bottom: 8px; }
+        .chart-box canvas { width: 100% !important; }
+        .chart-box.full-width { grid-column: 1 / -1; }
+        .chart-box .no-data { color: #ccc; text-align: center; padding: 40px; font-size: 13px; }
+
+        @media (max-width: 900px) {
+            .chart-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>JTL Performance Analysis</h1>
+    <p class="subtitle">JMeter JTL + Scouter Counter 결합 분석</p>
+
+    <div class="config-bar">
+        <label>Scouter API</label>
+        <input type="text" id="apiUrl" style="width: 200px;">
+        <span id="scouterStatus" class="scouter-status fail">미연결</span>
+        <label>시간 버킷</label>
+        <select id="bucketSelect" onchange="onBucketChange()">
+            <option value="1000">1초</option>
+            <option value="5000">5초</option>
+            <option value="10000">10초</option>
+            <option value="30000" selected>30초</option>
+            <option value="60000">1분</option>
+            <option value="300000">5분</option>
+        </select>
+        <button onclick="exportExcel()" id="btnExcel" disabled>엑셀 다운로드</button>
+        <span id="statusMsg"></span>
+    </div>
+
+    <div class="drop-zone" id="dropZone">
+        <div>JTL 파일을 여기에 드래그하거나 클릭하여 선택</div>
+        <div class="file-info" id="fileInfo"></div>
+        <input type="file" id="fileInput" accept=".jtl,.csv">
+    </div>
+
+    <div class="progress-wrap" id="progressWrap">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+        <div class="progress-label"><span id="progressText"></span><span id="progressPct"></span></div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="summary-cards" id="summaryCards" style="display:none;">
+        <div class="card"><div class="label">총 요청</div><div class="value"><span id="sumTotal">-</span><span class="unit">건</span></div></div>
+        <div class="card"><div class="label">평균 TPS</div><div class="value"><span id="sumTps">-</span></div></div>
+        <div class="card"><div class="label">평균 응답시간</div><div class="value"><span id="sumAvg">-</span><span class="unit">ms</span></div></div>
+        <div class="card"><div class="label">P95</div><div class="value"><span id="sumP95">-</span><span class="unit">ms</span></div></div>
+        <div class="card"><div class="label">P99</div><div class="value"><span id="sumP99">-</span><span class="unit">ms</span></div></div>
+        <div class="card"><div class="label">최대 응답시간</div><div class="value"><span id="sumMax">-</span><span class="unit">ms</span></div></div>
+        <div class="card"><div class="label">에러율</div><div class="value"><span id="sumErr">-</span><span class="unit">%</span></div></div>
+        <div class="card"><div class="label">Max Threads</div><div class="value"><span id="sumThreads">-</span></div></div>
+    </div>
+
+    <!-- 부하 테스트 차트 -->
+    <div id="loadTestSection" style="display:none;">
+        <div class="section-title">부하 테스트 분석 <span class="section-badge load">Load Test</span></div>
+        <div class="chart-row">
+            <div class="chart-box"><h3>#1 Scalability — 스레드 증가 시 TPS 비례 여부</h3><canvas id="chart1"></canvas></div>
+            <div class="chart-box"><h3>#2 CPU Correlation — 스레드 증가 시 서버 CPU 부하</h3><canvas id="chart2"></canvas><div class="no-data" id="chart2NoData" style="display:none;">Scouter 미연결 — Host Cpu 데이터 없음</div></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-box"><h3>#3 Overview — 스레드·TPS·CPU 종합</h3><canvas id="chart3"></canvas><div class="no-data" id="chart3NoData" style="display:none;">Scouter 미연결 — Host Cpu 데이터 없음</div></div>
+            <div class="chart-box"><h3>#4 Response Degradation — 응답 저하 시점</h3><canvas id="chart4"></canvas></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-box"><h3>#5 Total Transactions — 총 일량 축적 추이</h3><canvas id="chart5"></canvas></div>
+            <div class="chart-box"><h3>#6 Saturation Point — TPS 포화 지점</h3><canvas id="chart6"></canvas></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-box"><h3>#7 Response Distribution — 응답시간 분포</h3><canvas id="chart7"></canvas></div>
+            <div class="chart-box"><h3>#8 Error Rate — 에러 발생 시점</h3><canvas id="chart8"></canvas></div>
+        </div>
+    </div>
+
+    <!-- 내구성 테스트 차트 -->
+    <div id="enduranceSection" style="display:none;">
+        <div class="section-title">내구성 테스트 분석 <span class="section-badge endurance">Endurance</span></div>
+        <div class="chart-row">
+            <div class="chart-box full-width"><h3>#9 Memory Leak Detection — Heap 기저선 상승 여부</h3><canvas id="chart9"></canvas><div class="no-data" id="chart9NoData" style="display:none;">Scouter 미연결</div></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-box full-width"><h3>#10 TPS Stability — 장시간 TPS 안정성</h3><canvas id="chart10"></canvas></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-box full-width"><h3>#11 GC Pressure — GC 시간 증가 여부</h3><canvas id="chart11"></canvas><div class="no-data" id="chart11NoData" style="display:none;">Scouter 미연결</div></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-box full-width"><h3>#12 Error Accumulation — 에러 급증 시점</h3><canvas id="chart12"></canvas></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==================== 전역 상태 ====================
+    let charts = {};
+    let jtlRows = [];           // 파싱된 JTL 원본 행
+    let buckets = [];           // 버킷 집계 결과
+    let jtlStartMs = 0;        // JTL 시간 범위
+    let jtlEndMs = 0;
+    let scouterConnected = false;
+    let scouterObjects = [];    // object list 캐시
+    let scouterData = {};       // { Cpu: fetchCounter결과, HeapUsed: ..., GcCount: ..., GcTime: ... }
+
+    const CHART_COLORS = ['#3498db', '#2ecc71', '#e74c3c', '#9b59b6', '#1abc9c', '#e67e22', '#34495e', '#f39c12'];
+
+    // ==================== 초기화 ====================
+    window.addEventListener('load', function() {
+        document.getElementById('apiUrl').value = window.location.origin;
+        initDropZone();
+        checkScouterConnection();
+    });
+
+    // ==================== 드래그앤드롭 ====================
+    function initDropZone() {
+        const zone = document.getElementById('dropZone');
+        const input = document.getElementById('fileInput');
+
+        zone.addEventListener('click', function() { input.click(); });
+        zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+        zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+        zone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            zone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        });
+        input.addEventListener('change', function() {
+            if (input.files.length > 0) handleFile(input.files[0]);
+        });
+    }
+
+    function handleFile(file) {
+        document.getElementById('fileInfo').textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
+        showProgress(true);
+        updateProgress(5, 'JTL 파일 읽는 중...');
+        parseJtlStreaming(file).then(function() { analyze(); }).catch(function(e) { setStatus('에러: ' + e.message); console.error(e); });
+    }
+
+    // ==================== JTL 파싱 (스트리밍) ====================
+    async function parseJtlStreaming(file) {
+        var CHUNK = 64 * 1024 * 1024;
+        var offset = 0, remainder = '', headerParsed = false;
+        var colIdx = {}, iTs, iElapsed, iLabel, iRc, iSuccess, iThreads, iBytes, iLatency;
+        jtlRows = [];
+        jtlStartMs = Infinity;
+        jtlEndMs = 0;
+
+        while (offset < file.size) {
+            var end = Math.min(offset + CHUNK, file.size);
+            var text = await file.slice(offset, end).text();
+            var lines = (remainder + text).split('\n');
+            remainder = end < file.size ? lines.pop() : '';
+
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                if (!line) continue;
+                if (!headerParsed) {
+                    var header = line.split(',');
+                    header.forEach(function(h, idx) { colIdx[h.trim()] = idx; });
+                    iTs = colIdx['timeStamp']; iElapsed = colIdx['elapsed'];
+                    iLabel = colIdx['label']; iRc = colIdx['responseCode'];
+                    iSuccess = colIdx['success']; iThreads = colIdx['allThreads'];
+                    iBytes = colIdx['bytes']; iLatency = colIdx['Latency'];
+                    headerParsed = true;
+                    continue;
+                }
+                var cols = line.split(',');
+                if (cols.length < 5) continue;
+                var ts = Number(cols[iTs]);
+                jtlRows.push({
+                    timeStamp: ts, elapsed: Number(cols[iElapsed]),
+                    label: cols[iLabel] || '', responseCode: cols[iRc] || '',
+                    success: cols[iSuccess] === 'true',
+                    allThreads: Number(cols[iThreads]) || 0,
+                    bytes: Number(cols[iBytes]) || 0, latency: Number(cols[iLatency]) || 0
+                });
+                if (ts < jtlStartMs) jtlStartMs = ts;
+                if (ts > jtlEndMs) jtlEndMs = ts;
+            }
+            offset = end;
+            updateProgress(5 + Math.round((offset / file.size) * 15),
+                'JTL 파싱 중... (' + Math.round(offset/1048576) + '/' + Math.round(file.size/1048576) + 'MB)');
+            await new Promise(function(r) { setTimeout(r, 0); });
+        }
+        if (jtlStartMs === Infinity) jtlStartMs = 0;
+    }
+
+    // ==================== 버킷 집계 ====================
+    function bucketize(rows, bucketMs) {
+        if (rows.length === 0) return [];
+
+        var result = [];
+        var bucketMap = {};
+        var startBucket = Math.floor(jtlStartMs / bucketMs) * bucketMs;
+
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            var bKey = Math.floor(r.timeStamp / bucketMs) * bucketMs;
+            if (!bucketMap[bKey]) {
+                bucketMap[bKey] = {
+                    time: bKey + bucketMs / 2, // 버킷 중앙
+                    count: 0,
+                    errors: 0,
+                    threads: [],
+                    elapsedList: [],
+                    totalElapsed: 0
+                };
+            }
+            var b = bucketMap[bKey];
+            b.count++;
+            if (!r.success) b.errors++;
+            b.threads.push(r.allThreads);
+            b.elapsedList.push(r.elapsed);
+            b.totalElapsed += r.elapsed;
+        }
+
+        // 정렬 + 통계 계산
+        var keys = Object.keys(bucketMap).map(Number).sort(function(a, b) { return a - b; });
+        var cumCount = 0;
+        var cumErrors = 0;
+        var bucketSec = bucketMs / 1000;
+
+        for (var k = 0; k < keys.length; k++) {
+            var b = bucketMap[keys[k]];
+            b.elapsedList.sort(function(a, b2) { return a - b2; });
+            cumCount += b.count;
+            cumErrors += b.errors;
+
+            result.push({
+                time: b.time,
+                count: b.count,
+                tps: b.count / bucketSec,
+                avgElapsed: b.count > 0 ? b.totalElapsed / b.count : 0,
+                p50: percentile(b.elapsedList, 50),
+                p90: percentile(b.elapsedList, 90),
+                p95: percentile(b.elapsedList, 95),
+                p99: percentile(b.elapsedList, 99),
+                maxElapsed: b.elapsedList.length > 0 ? b.elapsedList[b.elapsedList.length - 1] : 0,
+                threads: b.threads.length > 0 ? Math.round(avg(b.threads)) : 0,
+                maxThreads: b.threads.length > 0 ? maxVal(b.threads) : 0,
+                errors: b.errors,
+                cumCount: cumCount,
+                cumErrors: cumErrors
+            });
+        }
+        return result;
+    }
+
+    // ==================== 분석 메인 ====================
+    async function analyze() {
+        if (jtlRows.length === 0) {
+            setStatus('JTL 데이터가 없습니다.');
+            showProgress(false);
+            return;
+        }
+
+        updateProgress(30, '버킷 집계 중...');
+        var bucketMs = Number(document.getElementById('bucketSelect').value);
+        buckets = bucketize(jtlRows, bucketMs);
+
+        updateProgress(40, '요약 통계 계산 중...');
+        renderSummary();
+
+        // 섹션을 먼저 보여줘야 Chart.js가 캔버스 크기를 정확히 잡음
+        document.getElementById('summaryCards').style.display = '';
+        document.getElementById('loadTestSection').style.display = '';
+        document.getElementById('enduranceSection').style.display = '';
+
+        updateProgress(50, 'JTL 차트 렌더링 중...');
+        renderJtlCharts();
+
+        // Scouter 연동
+        if (scouterConnected) {
+            updateProgress(65, 'Scouter 카운터 수집 중...');
+            await fetchScouterData();
+            updateProgress(85, 'Scouter 차트 렌더링 중...');
+        }
+        renderScouterCharts();
+
+        updateProgress(100, '완료');
+        document.getElementById('btnExcel').disabled = false;
+
+        setTimeout(function() { showProgress(false); }, 1000);
+    }
+
+    function onBucketChange() {
+        if (jtlRows.length === 0) return;
+        var bucketMs = Number(document.getElementById('bucketSelect').value);
+        buckets = bucketize(jtlRows, bucketMs);
+        renderSummary();
+        renderJtlCharts();
+        renderScouterCharts();
+    }
+
+    // ==================== 요약 카드 ====================
+    function renderSummary() {
+        var durationSec = (jtlEndMs - jtlStartMs) / 1000;
+        var allElapsed = jtlRows.map(function(r) { return r.elapsed; });
+        allElapsed.sort(function(a, b) { return a - b; });
+        var totalErrors = jtlRows.filter(function(r) { return !r.success; }).length;
+        var maxThreads = 0;
+        for (var i = 0; i < jtlRows.length; i++) {
+            if (jtlRows[i].allThreads > maxThreads) maxThreads = jtlRows[i].allThreads;
+        }
+
+        document.getElementById('sumTotal').textContent = jtlRows.length.toLocaleString();
+        document.getElementById('sumTps').textContent = durationSec > 0 ? (jtlRows.length / durationSec).toFixed(1) : '0';
+        document.getElementById('sumAvg').textContent = Math.round(avg(allElapsed)).toLocaleString();
+        document.getElementById('sumP95').textContent = Math.round(percentile(allElapsed, 95)).toLocaleString();
+        document.getElementById('sumP99').textContent = Math.round(percentile(allElapsed, 99)).toLocaleString();
+        document.getElementById('sumMax').textContent = allElapsed.length > 0 ? allElapsed[allElapsed.length - 1].toLocaleString() : '0';
+        document.getElementById('sumErr').textContent = jtlRows.length > 0 ? (totalErrors / jtlRows.length * 100).toFixed(2) : '0';
+        document.getElementById('sumThreads').textContent = maxThreads;
+    }
+
+    // ==================== JTL 차트 렌더링 ====================
+    function renderJtlCharts() {
+        if (buckets.length === 0) return;
+
+        // #1 Scalability: Active Threads (L) + TPS (R)
+        drawDualAxis('chart1', buckets,
+            { field: 'threads', label: 'Active Threads', color: '#3498db' },
+            { field: 'tps', label: 'TPS', color: '#27ae60' }
+        );
+
+        // #4 Response Degradation: Active Threads (L) + P95 (R)
+        drawDualAxis('chart4', buckets,
+            { field: 'threads', label: 'Active Threads', color: '#3498db' },
+            { field: 'p95', label: 'P95 응답시간 (ms)', color: '#9b59b6' }
+        );
+
+        // #5 Total Transactions: Active Threads (L) + 누적 트랜잭션 (R)
+        drawDualAxis('chart5', buckets,
+            { field: 'threads', label: 'Active Threads', color: '#3498db' },
+            { field: 'cumCount', label: '누적 트랜잭션', color: '#27ae60' }
+        );
+
+        // #6 Saturation Point: scatter (X=Threads, Y=TPS)
+        drawScatter('chart6', buckets);
+
+        // #7 Response Distribution: bar
+        drawDistribution('chart7');
+
+        // #8 Error Rate: Active Threads (L) + 에러 건수 (R)
+        drawDualAxis('chart8', buckets,
+            { field: 'threads', label: 'Active Threads', color: '#3498db' },
+            { field: 'errors', label: '에러 건수', color: '#e74c3c' }
+        );
+
+        // #10 TPS Stability: TPS (L) + P95 (R)
+        drawDualAxis('chart10', buckets,
+            { field: 'tps', label: 'TPS', color: '#27ae60' },
+            { field: 'p95', label: 'P95 응답시간 (ms)', color: '#9b59b6' }
+        );
+
+        // #12 Error Accumulation: 누적 에러 (L) + TPS (R)
+        drawDualAxis('chart12', buckets,
+            { field: 'cumErrors', label: '누적 에러', color: '#e74c3c' },
+            { field: 'tps', label: 'TPS', color: '#27ae60' }
+        );
+    }
+
+    // ==================== Scouter 연동 ====================
+    function getApiBase() { return document.getElementById('apiUrl').value.replace(/\/$/, ''); }
+
+    async function apiFetch(path) {
+        var res = await fetch(getApiBase() + path);
+        if (!res.ok) throw new Error('API error: ' + res.status);
+        var json = await res.json();
+        if (String(json.status) !== '200') throw new Error('Scouter error: ' + json.message);
+        return json;
+    }
+
+    async function checkScouterConnection() {
+        var el = document.getElementById('scouterStatus');
+        try {
+            var data = await apiFetch('/scouter/v1/object');
+            scouterObjects = data.result || [];
+            scouterConnected = true;
+            el.textContent = '연결됨 (' + scouterObjects.length + ' obj)';
+            el.className = 'scouter-status ok';
+        } catch (e) {
+            scouterConnected = false;
+            el.textContent = '미연결';
+            el.className = 'scouter-status fail';
+        }
+    }
+
+    function getHostname(objName) {
+        var parts = (objName || '').split('/').filter(Boolean);
+        return parts[0] || '';
+    }
+
+    async function fetchCounter(objHashes, counter, startTime, endTime) {
+        try {
+            var times = [], values = [];
+            var byObj = {};
+            var SIX_HOURS = 6 * 60 * 60 * 1000;
+            var chunkStart = startTime;
+
+            while (chunkStart < endTime) {
+                var chunkEnd = Math.min(chunkStart + SIX_HOURS, endTime);
+                var data = await apiFetch(
+                    '/scouter/v1/counter/' + counter
+                    + '?objHashes=' + objHashes
+                    + '&startTimeMillis=' + chunkStart
+                    + '&endTimeMillis=' + chunkEnd
+                );
+                (data.result || []).forEach(function(item) {
+                    if (item.timeList && item.valueList) {
+                        var objName = item.objName ? item.objName.split('/').pop() : '(unknown)';
+                        if (!byObj[objName]) byObj[objName] = { times: [], values: [] };
+                        item.timeList.forEach(function(t, i) {
+                            var tv = Number(t);
+                            var vv = Number(item.valueList[i]) || 0;
+                            times.push(tv);
+                            values.push(vv);
+                            byObj[objName].times.push(tv);
+                            byObj[objName].values.push(vv);
+                        });
+                    }
+                });
+                chunkStart = chunkEnd;
+            }
+
+            // 시간순 정렬
+            var indices = times.map(function(t, i) { return i; });
+            indices.sort(function(a, b) { return times[a] - times[b]; });
+            Object.values(byObj).forEach(function(obj) {
+                var idx = obj.times.map(function(t, i) { return i; });
+                idx.sort(function(a, b) { return obj.times[a] - obj.times[b]; });
+                obj.times = idx.map(function(i) { return obj.times[i]; });
+                obj.values = idx.map(function(i) { return obj.values[i]; });
+            });
+
+            return { times: indices.map(function(i) { return times[i]; }), values: indices.map(function(i) { return values[i]; }), byObj: byObj };
+        } catch (e) {
+            console.warn('[fetchCounter] ' + counter + ' 실패:', e.message);
+            return { times: [], values: [], byObj: {} };
+        }
+    }
+
+    async function fetchScouterData() {
+        if (!scouterConnected || scouterObjects.length === 0) return;
+
+        // Java 오브젝트에서 hostname 추출
+        var javaObjs = scouterObjects.filter(function(o) { return o.objFamily !== 'host'; });
+        var hostObjs = scouterObjects.filter(function(o) { return o.objFamily === 'host'; });
+
+        var javaHostnames = {};
+        javaObjs.forEach(function(o) { javaHostnames[getHostname(o.objName)] = true; });
+
+        // hostname 매칭되는 host만 필터
+        var matchedHosts = hostObjs.filter(function(o) { return javaHostnames[getHostname(o.objName)]; });
+
+        var javaHashes = javaObjs.map(function(o) { return o.objHash; }).join(',');
+        var hostHashes = matchedHosts.map(function(o) { return o.objHash; }).join(',');
+
+        var margin = 60000; // 1분 여유
+        var start = jtlStartMs - margin;
+        var end = jtlEndMs + margin;
+
+        // 병렬 호출
+        var promises = [];
+        if (hostHashes) {
+            promises.push(fetchCounter(hostHashes, 'Cpu', start, end).then(function(d) { scouterData.Cpu = d; }));
+        }
+        if (javaHashes) {
+            promises.push(fetchCounter(javaHashes, 'HeapUsed', start, end).then(function(d) { scouterData.HeapUsed = d; }));
+            promises.push(fetchCounter(javaHashes, 'GcCount', start, end).then(function(d) { scouterData.GcCount = d; }));
+            promises.push(fetchCounter(javaHashes, 'GcTime', start, end).then(function(d) { scouterData.GcTime = d; }));
+        }
+
+        await Promise.all(promises);
+
+        // Scouter 데이터를 JTL 시간 범위로 필터
+        if (jtlStartMs && jtlEndMs) {
+            Object.keys(scouterData).forEach(function(key) {
+                scouterData[key] = filterScouterByJtlRange(scouterData[key]);
+            });
+        }
+    }
+
+    // Scouter 데이터를 JTL 시간 범위로 필터링 (앞쪽만 자르고 뒤쪽은 1분 여유)
+    function filterScouterByJtlRange(data) {
+        if (!data || !data.times || data.times.length === 0) return data;
+        var trailing = 60000; // 부하 종료 후 서버 회복 구간 (GC, Heap 반납 등)
+        var filtered = { times: [], values: [], byObj: {} };
+        for (var i = 0; i < data.times.length; i++) {
+            if (data.times[i] >= jtlStartMs && data.times[i] <= jtlEndMs + trailing) {
+                filtered.times.push(data.times[i]);
+                filtered.values.push(data.values[i]);
+            }
+        }
+        Object.keys(data.byObj || {}).forEach(function(objName) {
+            var obj = data.byObj[objName];
+            var fo = { times: [], values: [] };
+            for (var i = 0; i < obj.times.length; i++) {
+                if (obj.times[i] >= jtlStartMs && obj.times[i] <= jtlEndMs + trailing) {
+                    fo.times.push(obj.times[i]);
+                    fo.values.push(obj.values[i]);
+                }
+            }
+            if (fo.times.length > 0) filtered.byObj[objName] = fo;
+        });
+        return filtered;
+    }
+
+    // ==================== Scouter 차트 렌더링 ====================
+    function renderScouterCharts() {
+        var hasCpu = scouterData.Cpu && scouterData.Cpu.times.length > 0;
+        var hasHeap = scouterData.HeapUsed && scouterData.HeapUsed.times.length > 0;
+        var hasGc = scouterData.GcCount && scouterData.GcCount.times.length > 0;
+        var hasGcTime = scouterData.GcTime && scouterData.GcTime.times.length > 0;
+
+        // #2 CPU Correlation: Active Threads (L) + Host Cpu% (R)
+        if (hasCpu && buckets.length > 0) {
+            document.getElementById('chart2NoData').style.display = 'none';
+            drawDualAxisWithScouter('chart2', buckets,
+                { field: 'threads', label: 'Active Threads', color: '#3498db' },
+                scouterData.Cpu, 'Host Cpu%', '#e74c3c'
+            );
+        } else {
+            hideChart('chart2', 'chart2NoData');
+        }
+
+        // #3 Overview: Active Threads (L) + TPS (R1) + Host Cpu% (R2)
+        if (hasCpu && buckets.length > 0) {
+            document.getElementById('chart3NoData').style.display = 'none';
+            drawOverviewChart('chart3', buckets, scouterData.Cpu);
+        } else if (buckets.length > 0) {
+            // Scouter 없으면 Threads + TPS만
+            document.getElementById('chart3NoData').style.display = 'none';
+            drawDualAxis('chart3', buckets,
+                { field: 'threads', label: 'Active Threads', color: '#3498db' },
+                { field: 'tps', label: 'TPS', color: '#27ae60' }
+            );
+        } else {
+            hideChart('chart3', 'chart3NoData');
+        }
+
+        // #9 Memory Leak Detection: HeapUsed(MB) (L) + GcCount (R)
+        if (hasHeap && hasGc) {
+            document.getElementById('chart9NoData').style.display = 'none';
+            drawScouterDual('chart9', scouterData.HeapUsed, 'HeapUsed (MB)', null,
+                scouterData.GcCount, 'GcCount');
+        } else {
+            hideChart('chart9', 'chart9NoData');
+        }
+
+        // #11 GC Pressure: GcTime(ms) (L) + HeapUsed(MB) (R)
+        if (hasGcTime && hasHeap) {
+            document.getElementById('chart11NoData').style.display = 'none';
+            drawScouterDual('chart11', scouterData.GcTime, 'GcTime (ms)', null,
+                scouterData.HeapUsed, 'HeapUsed (MB)', null);
+        } else {
+            hideChart('chart11', 'chart11NoData');
+        }
+    }
+
+    function hideChart(canvasId, noDataId) {
+        var canvas = document.getElementById(canvasId);
+        if (canvas) canvas.style.display = 'none';
+        var nd = document.getElementById(noDataId);
+        if (nd) nd.style.display = '';
+    }
+
+    // ==================== 커스텀 인터랙션 모드 ====================
+    // JTL+Scouter 혼합 차트용: 각 데이터셋에서 x값(시간) 기준 가장 가까운 포인트를 독립적으로 찾음
+    // (기본 'index' 모드는 배열 인덱스 기준이라 샘플링 간격이 다른 데이터셋에서 시간이 엇나감)
+    Chart.Interaction.modes.xClosest = function(chart, e, options, useFinalPosition) {
+        var pos = Chart.helpers.getRelativePosition(e, chart);
+        var xVal = chart.scales.x.getValueForPixel(pos.x);
+        var items = [];
+        chart.data.datasets.forEach(function(ds, dsIdx) {
+            if (!chart.isDatasetVisible(dsIdx)) return;
+            var meta = chart.getDatasetMeta(dsIdx);
+            var closest = null, closestDist = Infinity;
+            for (var i = 0; i < meta.data.length; i++) {
+                var el = meta.data[i];
+                var px = useFinalPosition ? el.getProps(['x'], true).x : el.x;
+                var val = chart.scales.x.getValueForPixel(px);
+                var dist = Math.abs(val - xVal);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closest = { element: el, datasetIndex: dsIdx, index: i };
+                }
+            }
+            if (closest) items.push(closest);
+        });
+        return items;
+    };
+
+    // ==================== 차트 헬퍼 ====================
+    function destroyChart(id) {
+        if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+        var canvas = document.getElementById(id);
+        if (canvas) canvas.style.display = '';
+    }
+
+    // 듀얼 Y축 라인 차트 (JTL 버킷 데이터)
+    function drawDualAxis(canvasId, data, leftCfg, rightCfg) {
+        destroyChart(canvasId);
+        var canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        charts[canvasId] = new Chart(canvas, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: leftCfg.label,
+                        data: data.map(function(b) { return { x: b.time, y: b[leftCfg.field] }; }),
+                        borderColor: leftCfg.color, backgroundColor: leftCfg.color + '20',
+                        fill: true, tension: 0.3, pointRadius: 3, borderWidth: 2,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: rightCfg.label,
+                        data: data.map(function(b) { return { x: b.time, y: b[rightCfg.field] }; }),
+                        borderColor: rightCfg.color, backgroundColor: rightCfg.color + '20',
+                        fill: false, tension: 0.3, pointRadius: 3, borderWidth: 2,
+                        yAxisID: 'yRight'
+                    }
+                ]
+            },
+            options: dualAxisOptions(leftCfg.label, rightCfg.label)
+        });
+    }
+
+    // JTL 좌축 + Scouter 우축 (멀티 인스턴스 개별 라인)
+    function drawDualAxisWithScouter(canvasId, jtlData, leftCfg, scouterResult, rightLabel, rightColor) {
+        destroyChart(canvasId);
+        var canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        var datasets = [{
+            label: leftCfg.label,
+            data: jtlData.map(function(b) { return { x: b.time, y: b[leftCfg.field] }; }),
+            borderColor: leftCfg.color, backgroundColor: leftCfg.color + '20',
+            fill: true, tension: 0.3, pointRadius: 3, borderWidth: 2,
+            yAxisID: 'y'
+        }];
+
+        // Scouter 인스턴스별 개별 라인
+        var instNames = scouterResult.byObj ? Object.keys(scouterResult.byObj).sort() : [];
+        if (instNames.length > 1) {
+            instNames.forEach(function(name, idx) {
+                var inst = scouterResult.byObj[name];
+                var c = CHART_COLORS[(idx + 1) % CHART_COLORS.length];
+                datasets.push({
+                    label: name + ' ' + rightLabel,
+                    data: inst.times.map(function(t, i) { return { x: t, y: inst.values[i] }; }),
+                    borderColor: c, backgroundColor: c + '20',
+                    fill: false, tension: 0.3, pointRadius: 0, borderWidth: 1.5,
+                    yAxisID: 'yRight'
+                });
+            });
+        } else {
+            datasets.push({
+                label: rightLabel,
+                data: scouterResult.times.map(function(t, i) { return { x: t, y: scouterResult.values[i] }; }),
+                borderColor: rightColor, backgroundColor: rightColor + '20',
+                fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2,
+                yAxisID: 'yRight'
+            });
+        }
+
+        charts[canvasId] = new Chart(canvas, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: dualAxisOptions(leftCfg.label, rightLabel, true)
+        });
+    }
+
+    // Overview: 3축 (Threads L, TPS R1, Cpu% R2)
+    function drawOverviewChart(canvasId, jtlData, cpuData) {
+        destroyChart(canvasId);
+        var canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        var datasets = [
+            {
+                label: 'Active Threads',
+                data: jtlData.map(function(b) { return { x: b.time, y: b.threads }; }),
+                borderColor: '#3498db', backgroundColor: '#3498db20',
+                fill: true, tension: 0.3, pointRadius: 3, borderWidth: 2,
+                yAxisID: 'y'
+            },
+            {
+                label: 'TPS',
+                data: jtlData.map(function(b) { return { x: b.time, y: b.tps }; }),
+                borderColor: '#27ae60', backgroundColor: '#27ae6020',
+                fill: false, tension: 0.3, pointRadius: 3, borderWidth: 2,
+                yAxisID: 'yRight'
+            }
+        ];
+
+        // CPU - 인스턴스별 or 단일
+        var instNames = cpuData.byObj ? Object.keys(cpuData.byObj).sort() : [];
+        if (instNames.length > 1) {
+            instNames.forEach(function(name, idx) {
+                var inst = cpuData.byObj[name];
+                var c = CHART_COLORS[(idx + 2) % CHART_COLORS.length];
+                datasets.push({
+                    label: name + ' Cpu%',
+                    data: inst.times.map(function(t, i) { return { x: t, y: inst.values[i] }; }),
+                    borderColor: c, borderDash: [4, 2],
+                    fill: false, tension: 0.3, pointRadius: 0, borderWidth: 1.5,
+                    yAxisID: 'yRight2'
+                });
+            });
+        } else {
+            datasets.push({
+                label: 'Host Cpu%',
+                data: cpuData.times.map(function(t, i) { return { x: t, y: cpuData.values[i] }; }),
+                borderColor: '#e74c3c', borderDash: [4, 2],
+                fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2,
+                yAxisID: 'yRight2'
+            });
+        }
+
+        charts[canvasId] = new Chart(canvas, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: {
+                responsive: true,
+                interaction: { mode: 'xClosest', intersect: false },
+                plugins: { legend: { display: true }, tooltip: { callbacks: { title: tooltipTitle } } },
+                scales: {
+                    x: timeXScale(),
+                    y: { position: 'left', beginAtZero: true, title: { display: true, text: 'Active Threads' }, ticks: { font: { size: 11 } } },
+                    yRight: { position: 'right', beginAtZero: true, title: { display: true, text: 'TPS' }, grid: { drawOnChartArea: false }, ticks: { font: { size: 11 } } },
+                    yRight2: { position: 'right', beginAtZero: true, max: 100, title: { display: true, text: 'Cpu%' }, grid: { drawOnChartArea: false }, ticks: { font: { size: 11 } },
+                        afterFit: function(axis) { axis.paddingRight = 10; }
+                    }
+                }
+            }
+        });
+    }
+
+    // Scouter 듀얼 차트 (두 카운터, 각각 멀티 인스턴스)
+    function drawScouterDual(canvasId, leftData, leftLabel, leftTransform, rightData, rightLabel, rightTransform) {
+        destroyChart(canvasId);
+        var canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        var datasets = [];
+
+        // 좌축 - 인스턴스별
+        var leftInst = leftData.byObj ? Object.keys(leftData.byObj).sort() : [];
+        if (leftInst.length > 1) {
+            leftInst.forEach(function(name, idx) {
+                var inst = leftData.byObj[name];
+                var c = CHART_COLORS[idx % CHART_COLORS.length];
+                var vals = leftTransform ? inst.values.map(leftTransform) : inst.values;
+                datasets.push({
+                    label: name + ' ' + leftLabel,
+                    data: inst.times.map(function(t, i) { return { x: t, y: vals[i] }; }),
+                    borderColor: c, backgroundColor: c + '20',
+                    fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2,
+                    yAxisID: 'y'
+                });
+            });
+        } else {
+            var vals = leftTransform ? leftData.values.map(leftTransform) : leftData.values;
+            datasets.push({
+                label: leftLabel,
+                data: leftData.times.map(function(t, i) { return { x: t, y: vals[i] }; }),
+                borderColor: '#3498db', backgroundColor: '#3498db20',
+                fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2,
+                yAxisID: 'y'
+            });
+        }
+
+        // 우축 - 인스턴스별
+        var rightInst = rightData.byObj ? Object.keys(rightData.byObj).sort() : [];
+        if (rightInst.length > 1) {
+            rightInst.forEach(function(name, idx) {
+                var inst = rightData.byObj[name];
+                var c = CHART_COLORS[(idx + leftInst.length) % CHART_COLORS.length];
+                var vals = rightTransform ? inst.values.map(rightTransform) : inst.values;
+                datasets.push({
+                    label: name + ' ' + rightLabel,
+                    data: inst.times.map(function(t, i) { return { x: t, y: vals[i] }; }),
+                    borderColor: c, borderDash: [4, 2],
+                    fill: false, tension: 0.3, pointRadius: 0, borderWidth: 1.5,
+                    yAxisID: 'yRight'
+                });
+            });
+        } else {
+            var rVals = rightTransform ? rightData.values.map(rightTransform) : rightData.values;
+            datasets.push({
+                label: rightLabel,
+                data: rightData.times.map(function(t, i) { return { x: t, y: rVals[i] }; }),
+                borderColor: '#e67e22', backgroundColor: '#e67e2220',
+                fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2,
+                yAxisID: 'yRight'
+            });
+        }
+
+        charts[canvasId] = new Chart(canvas, {
+            type: 'line',
+            data: { datasets: datasets },
+            options: dualAxisOptions(leftLabel, rightLabel)
+        });
+    }
+
+    // Scatter: X=Threads, Y=TPS
+    function drawScatter(canvasId, data) {
+        destroyChart(canvasId);
+        var canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        var points = data.map(function(b) { return { x: b.threads, y: b.tps }; });
+
+        charts[canvasId] = new Chart(canvas, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'TPS vs Threads',
+                    data: points,
+                    backgroundColor: '#4a90d980',
+                    borderColor: '#4a90d9',
+                    pointRadius: 4, pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                return 'Threads: ' + ctx.parsed.x + ', TPS: ' + ctx.parsed.y.toFixed(1);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Active Threads' }, beginAtZero: true, ticks: { font: { size: 11 } } },
+                    y: { title: { display: true, text: 'TPS' }, beginAtZero: true, ticks: { font: { size: 11 } } }
+                }
+            }
+        });
+    }
+
+    // Bar: 응답시간 분포
+    function drawDistribution(canvasId) {
+        destroyChart(canvasId);
+        var canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        var ranges = [
+            { label: '0-100ms', min: 0, max: 100 },
+            { label: '100-500ms', min: 100, max: 500 },
+            { label: '500ms-1s', min: 500, max: 1000 },
+            { label: '1-3s', min: 1000, max: 3000 },
+            { label: '3-5s', min: 3000, max: 5000 },
+            { label: '5-10s', min: 5000, max: 10000 },
+            { label: '10-20s', min: 10000, max: 20000 },
+            { label: '20s+', min: 20000, max: Infinity }
+        ];
+
+        var counts = ranges.map(function() { return 0; });
+        for (var i = 0; i < jtlRows.length; i++) {
+            var e = jtlRows[i].elapsed;
+            for (var r = 0; r < ranges.length; r++) {
+                if (e >= ranges[r].min && e < ranges[r].max) { counts[r]++; break; }
+            }
+        }
+
+        var colors = ['#27ae60', '#2ecc71', '#f1c40f', '#e67e22', '#e74c3c', '#c0392b', '#8e44ad', '#2c3e50'];
+
+        charts[canvasId] = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: ranges.map(function(r) { return r.label; }),
+                datasets: [{
+                    label: '건수',
+                    data: counts,
+                    backgroundColor: colors,
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                var pct = jtlRows.length > 0 ? (ctx.parsed.y / jtlRows.length * 100).toFixed(1) : 0;
+                                return ctx.parsed.y.toLocaleString() + '건 (' + pct + '%)';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { font: { size: 11 } } },
+                    y: { beginAtZero: true, title: { display: true, text: '건수' }, ticks: { font: { size: 11 } } }
+                }
+            }
+        });
+    }
+
+    // ==================== 공통 차트 옵션 ====================
+    function dualAxisOptions(leftLabel, rightLabel, mixedSource) {
+        return {
+            responsive: true,
+            interaction: { mode: mixedSource ? 'xClosest' : 'index', intersect: false },
+            plugins: {
+                legend: { display: true },
+                tooltip: { callbacks: { title: tooltipTitle } }
+            },
+            scales: {
+                x: timeXScale(),
+                y: { position: 'left', beginAtZero: true, title: { display: true, text: leftLabel }, ticks: { font: { size: 11 } } },
+                yRight: { position: 'right', beginAtZero: true, title: { display: true, text: rightLabel }, grid: { drawOnChartArea: false }, ticks: { font: { size: 11 } } }
+            }
+        };
+    }
+
+    function timeXScale() {
+        return {
+            type: 'linear',
+            ticks: {
+                maxTicksLimit: 12, font: { size: 11 },
+                callback: function(v) { var d = new Date(v); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+            }
+        };
+    }
+
+    function tooltipTitle(items) {
+        if (!items.length) return '';
+        var raw = items[0].raw;
+        var t = raw && raw.x != null ? raw.x : 0;
+        var d = new Date(t);
+        return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+
+    // ==================== 엑셀 다운로드 ====================
+    function exportExcel() {
+        if (jtlRows.length === 0) return;
+
+        var wb = XLSX.utils.book_new();
+
+        // 시트 1: 요약
+        var durationSec = (jtlEndMs - jtlStartMs) / 1000;
+        var allElapsed = jtlRows.map(function(r) { return r.elapsed; }).sort(function(a, b) { return a - b; });
+        var totalErrors = jtlRows.filter(function(r) { return !r.success; }).length;
+
+        var summaryData = [
+            ['항목', '값'],
+            ['총 요청 수', jtlRows.length],
+            ['테스트 시간 (초)', Math.round(durationSec)],
+            ['평균 TPS', durationSec > 0 ? Number((jtlRows.length / durationSec).toFixed(2)) : 0],
+            ['평균 응답시간 (ms)', Math.round(avg(allElapsed))],
+            ['P50 (ms)', Math.round(percentile(allElapsed, 50))],
+            ['P90 (ms)', Math.round(percentile(allElapsed, 90))],
+            ['P95 (ms)', Math.round(percentile(allElapsed, 95))],
+            ['P99 (ms)', Math.round(percentile(allElapsed, 99))],
+            ['최대 응답시간 (ms)', allElapsed[allElapsed.length - 1]],
+            ['에러 수', totalErrors],
+            ['에러율 (%)', Number((totalErrors / jtlRows.length * 100).toFixed(2))]
+        ];
+        var wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+        wsSummary['!cols'] = [{ wch: 20 }, { wch: 15 }];
+        XLSX.utils.book_append_sheet(wb, wsSummary, '요약');
+
+        // 시트 2: 버킷별 집계
+        var bucketHeader = ['시간', 'Active Threads', 'TPS', '건수', '평균 응답시간(ms)', 'P50(ms)', 'P90(ms)', 'P95(ms)', 'P99(ms)', '최대(ms)', '에러', '누적 건수', '누적 에러'];
+        var bucketRows = buckets.map(function(b) {
+            var d = new Date(b.time);
+            var ts = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            return [ts, b.threads, Number(b.tps.toFixed(1)), b.count, Math.round(b.avgElapsed),
+                b.p50, b.p90, b.p95, b.p99, b.maxElapsed, b.errors, b.cumCount, b.cumErrors];
+        });
+        var wsBucket = XLSX.utils.aoa_to_sheet([bucketHeader].concat(bucketRows));
+        wsBucket['!cols'] = [{ wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 16 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 10 }];
+        XLSX.utils.book_append_sheet(wb, wsBucket, '버킷집계');
+
+        // 시트 3: JTL 원본 (최대 100K행)
+        var maxRows = Math.min(jtlRows.length, 100000);
+        var jtlHeader = ['시간', '서비스명', '응답시간(ms)', '응답코드', '성공', 'Active Threads', 'Bytes', 'Latency(ms)'];
+        var jtlData = [];
+        for (var i = 0; i < maxRows; i++) {
+            var r = jtlRows[i];
+            var d = new Date(r.timeStamp);
+            var ts = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+            jtlData.push([ts, r.label, r.elapsed, r.responseCode, r.success ? 'Y' : 'N', r.allThreads, r.bytes, r.latency]);
+        }
+        var wsJtl = XLSX.utils.aoa_to_sheet([jtlHeader].concat(jtlData));
+        wsJtl['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 }, { wch: 6 }, { wch: 14 }, { wch: 10 }, { wch: 12 }];
+        XLSX.utils.book_append_sheet(wb, wsJtl, 'JTL원본');
+
+        // 파일명
+        var now = new Date(jtlStartMs);
+        var fileName = 'JTL_Analysis_' + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + '_' + pad(now.getHours()) + pad(now.getMinutes()) + '.xlsx';
+        XLSX.writeFile(wb, fileName);
+    }
+
+    // ==================== 유틸 ====================
+    function avg(a) { return a.length ? a.reduce(function(s, v) { return s + v; }, 0) / a.length : 0; }
+    function maxVal(a) { if (!a.length) return 0; var v = a[0]; for (var i = 1; i < a.length; i++) if (a[i] > v) v = a[i]; return v; }
+    function minVal(a) { if (!a.length) return 0; var v = a[0]; for (var i = 1; i < a.length; i++) if (a[i] < v) v = a[i]; return v; }
+    function pad(n) { return String(n).padStart(2, '0'); }
+
+    function percentile(sortedArr, p) {
+        if (sortedArr.length === 0) return 0;
+        var idx = (p / 100) * (sortedArr.length - 1);
+        var lo = Math.floor(idx), hi = Math.ceil(idx);
+        if (lo === hi) return sortedArr[lo];
+        return sortedArr[lo] + (sortedArr[hi] - sortedArr[lo]) * (idx - lo);
+    }
+
+    function showProgress(visible) {
+        document.getElementById('progressWrap').className = visible ? 'progress-wrap show' : 'progress-wrap';
+    }
+
+    function updateProgress(pct, text) {
+        document.getElementById('progressFill').style.width = pct + '%';
+        document.getElementById('progressText').textContent = text;
+        document.getElementById('progressPct').textContent = Math.round(pct) + '%';
+    }
+
+    function setStatus(msg) {
+        document.getElementById('statusMsg').textContent = msg;
+    }
+</script>
+</body>
+</html>

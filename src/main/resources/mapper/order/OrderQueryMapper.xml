@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.perfdemo.domain.order.mapper.OrderQueryMapper">
+
+    <!-- Scenario 2: 느린 검색 - LIKE '%keyword%' (Full Table Scan) -->
+    <select id="searchByKeywordSlow" resultType="com.example.perfdemo.domain.order.dto.response.OrderResponseDTO">
+        SELECT ORDER_ID,
+               CUSTOMER_ID,
+               CUSTOMER_NAME,
+               ORDER_STATUS,
+               TOTAL_AMOUNT,
+               ORDER_DATE
+          FROM PERF_ORDER
+         WHERE CUSTOMER_NAME LIKE '%' || #{keyword} || '%'
+    </select>
+
+    <!-- Scenario 2: 최적화 검색 - LIKE 'keyword%' + LIMIT -->
+    <select id="searchByKeywordFast" resultType="com.example.perfdemo.domain.order.dto.response.OrderResponseDTO">
+        SELECT ORDER_ID,
+               CUSTOMER_ID,
+               CUSTOMER_NAME,
+               ORDER_STATUS,
+               TOTAL_AMOUNT,
+               ORDER_DATE
+          FROM PERF_ORDER
+         WHERE CUSTOMER_NAME LIKE #{keyword} || '%'
+         LIMIT 100
+    </select>
+
+    <!-- Scenario 3: N+1용 - 최근 주문 목록 -->
+    <select id="findRecentOrders" resultType="com.example.perfdemo.domain.order.entity.PerfOrder">
+        SELECT ORDER_ID,
+               CUSTOMER_ID,
+               CUSTOMER_NAME,
+               ORDER_STATUS,
+               TOTAL_AMOUNT,
+               ORDER_DATE
+          FROM PERF_ORDER
+         ORDER BY ORDER_DATE DESC
+         LIMIT #{limit}
+    </select>
+
+    <!-- Scenario 3: 최적화 - JOIN 한 방 쿼리 -->
+    <resultMap id="orderWithDetailsMap" type="com.example.perfdemo.domain.order.dto.response.OrderWithDetailsResponseDTO">
+        <id property="orderId" column="ORDER_ID"/>
+        <result property="customerName" column="CUSTOMER_NAME"/>
+        <result property="orderStatus" column="ORDER_STATUS"/>
+        <result property="totalAmount" column="TOTAL_AMOUNT"/>
+        <collection property="details" ofType="com.example.perfdemo.domain.order.dto.response.OrderDetailResponseDTO">
+            <id property="detailId" column="DETAIL_ID"/>
+            <result property="orderId" column="ORDER_ID"/>
+            <result property="productId" column="PRODUCT_ID"/>
+            <result property="productName" column="PRODUCT_NAME"/>
+            <result property="quantity" column="QUANTITY"/>
+            <result property="unitPrice" column="UNIT_PRICE"/>
+            <result property="lineAmount" column="LINE_AMOUNT"/>
+        </collection>
+    </resultMap>
+
+    <select id="findOrdersWithDetails" resultMap="orderWithDetailsMap">
+        SELECT o.ORDER_ID,
+               o.CUSTOMER_NAME,
+               o.ORDER_STATUS,
+               o.TOTAL_AMOUNT,
+               d.DETAIL_ID,
+               d.PRODUCT_ID,
+               d.PRODUCT_NAME,
+               d.QUANTITY,
+               d.UNIT_PRICE,
+               d.LINE_AMOUNT
+          FROM (SELECT * FROM PERF_ORDER LIMIT #{limit}) o
+          JOIN PERF_ORDER_DETAIL d ON o.ORDER_ID = d.ORDER_ID
+          LEFT JOIN PERF_PRODUCT p ON d.PRODUCT_ID = p.PRODUCT_ID
+         ORDER BY o.ORDER_ID, d.DETAIL_ID
+    </select>
+
+    <!-- Scenario 5: 최적화 - DB 집계 쿼리 -->
+    <select id="findOrderReport" resultType="com.example.perfdemo.domain.order.dto.response.OrderReportResponseDTO">
+        SELECT o.ORDER_STATUS,
+               COUNT(*) AS ORDER_COUNT,
+               SUM(o.TOTAL_AMOUNT) AS TOTAL_AMOUNT_SUM,
+               LISTAGG(DISTINCT p.PRODUCT_NAME, ', ') AS PRODUCT_NAMES
+          FROM PERF_ORDER o
+          JOIN PERF_ORDER_DETAIL d ON o.ORDER_ID = d.ORDER_ID
+          JOIN PERF_PRODUCT p ON d.PRODUCT_ID = p.PRODUCT_ID
+         WHERE o.ORDER_DATE BETWEEN #{startDate} AND #{endDate}
+         GROUP BY o.ORDER_STATUS
+         ORDER BY o.ORDER_STATUS
+    </select>
+
+    <!-- Scenario 7: 전체 거래내역 추출 (병목 - 10만건 전체 로드) -->
+    <select id="findAllOrders" resultType="com.example.perfdemo.domain.order.entity.PerfOrder">
+        SELECT ORDER_ID,
+               CUSTOMER_ID,
+               CUSTOMER_NAME,
+               ORDER_STATUS,
+               TOTAL_AMOUNT,
+               ORDER_DATE
+          FROM PERF_ORDER
+    </select>
+
+</mapper>

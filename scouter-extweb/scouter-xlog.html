@@ -1,0 +1,1729 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Scouter XLog</title>
+    <script src="chart.js"></script>
+    <script src="chartjs-plugin-annotation.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Malgun Gothic', sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 10px; color: #333; font-size: 22px; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 20px; font-size: 13px; }
+
+        .config-bar {
+            background: #fff; border-radius: 8px; padding: 15px 20px;
+            margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        }
+        .config-bar label { font-size: 13px; font-weight: bold; color: #555; }
+        .config-bar input, .config-bar select {
+            padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;
+        }
+        .config-bar button {
+            padding: 8px 16px; background: #4a90d9; color: #fff; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .config-bar button:hover { background: #357abd; }
+        .config-bar button:disabled { background: #ccc; cursor: not-allowed; }
+        #statusMsg { font-size: 12px; color: #e74c3c; margin-left: 5px; }
+        .auto-refresh { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+        .auto-refresh label { font-weight: normal; }
+        .nav-link { font-size: 12px; color: #4a90d9; text-decoration: none; margin-left: 10px; }
+        .nav-link:hover { text-decoration: underline; }
+
+        /* 오버레이 카운터 토글 바 */
+        .overlay-bar {
+            background: #fff; border-radius: 8px; padding: 10px 20px;
+            margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex; align-items: center; gap: 15px; flex-wrap: wrap; font-size: 12px;
+        }
+        .overlay-bar label { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px; }
+        .overlay-bar .overlay-label { font-size: 13px; font-weight: bold; color: #555; }
+        .overlay-color { display: inline-block; width: 12px; height: 3px; border-radius: 2px; }
+        .axis-tag { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 2px; vertical-align: middle; margin-left: 1px; }
+        .tag-r1 { color: #4a90d9; background: rgba(74,144,217,0.1); }
+        .tag-r2 { color: #e67e22; background: rgba(230,126,34,0.1); }
+        .tag-r3 { color: #8e44ad; background: rgba(142,68,173,0.1); }
+
+        /* XLog 영역 */
+        .xlog-container {
+            background: #fff; border-radius: 8px; padding: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 15px;
+            position: relative;
+        }
+        .xlog-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .xlog-header h3 { font-size: 14px; color: #555; }
+        .xlog-stats { font-size: 11px; color: #999; }
+        .xlog-legend { display: flex; gap: 15px; margin-top: 8px; font-size: 11px; color: #666; }
+        .xlog-legend-item { display: flex; align-items: center; gap: 4px; }
+        .xlog-legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .xlog-select-box {
+            position: absolute; border: 2px dashed #4a90d9; background: rgba(74,144,217,0.1);
+            pointer-events: none; z-index: 10;
+        }
+
+        /* 느린 API 테이블 */
+        .table-container {
+            background: #fff; border-radius: 8px; padding: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 15px;
+        }
+        .table-container h3 { font-size: 14px; color: #555; margin-bottom: 10px; }
+        .slow-api-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .slow-api-table th {
+            background: #f8f9fa; padding: 8px 12px; text-align: left;
+            border-bottom: 2px solid #dee2e6; font-weight: bold; color: #555;
+        }
+        .slow-api-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+        .slow-api-table tr:hover { background: #f8f9fa; }
+
+        /* 알림 이력 */
+        .alert-section { margin-bottom: 15px; }
+        .alert-filters { display: flex; gap: 8px; margin-bottom: 10px; }
+        .alert-filter-btn {
+            padding: 4px 10px; border: 1px solid #ddd; border-radius: 4px;
+            background: #fff; cursor: pointer; font-size: 12px;
+        }
+        .alert-filter-btn.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+        .alert-filter-btn .count { font-weight: bold; margin-left: 4px; }
+        .alert-list { max-height: 200px; overflow-y: auto; }
+        .alert-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 10px; border-bottom: 1px solid #f0f0f0; font-size: 12px;
+        }
+        .alert-badge {
+            display: inline-block; padding: 1px 6px; border-radius: 3px;
+            color: #fff; font-size: 10px; font-weight: bold; min-width: 40px; text-align: center;
+        }
+        .alert-badge.FATAL { background: #8b0000; }
+        .alert-badge.ERROR { background: #e74c3c; }
+        .alert-badge.WARN { background: #f39c12; }
+        .alert-badge.INFO { background: #3498db; }
+        .alert-time { color: #888; font-size: 12px; min-width: 60px; }
+        .alert-obj-type { font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; min-width: 32px; text-align: center; }
+        .alert-obj-type.host { background: #e8f5e9; color: #27ae60; }
+        .alert-obj-type.java { background: #e3f2fd; color: #2980b9; }
+        .alert-msg { flex: 1; }
+        .alert-toast {
+            font-size: 11px; font-weight: 600; margin-left: 8px;
+            transition: opacity 0.4s ease;
+        }
+        .alert-toast .toast-badge {
+            display: inline-block; padding: 1px 5px; border-radius: 3px;
+            color: #fff; font-size: 9px; font-weight: bold; margin-right: 3px;
+        }
+        .alert-toast .toast-badge.FATAL { background: #8b0000; }
+        .alert-toast .toast-badge.ERROR { background: #e74c3c; }
+        .alert-toast .toast-badge.WARN { background: #f39c12; }
+        .alert-toast .toast-badge.INFO { background: #3498db; }
+
+        /* 프로파일 모달 */
+        .profile-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;
+        }
+        .profile-overlay.show { display: flex; }
+        .profile-modal {
+            background: #fff; border-radius: 8px; width: 95%; max-width: 1200px; height: 80vh;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3); display: flex; flex-direction: column;
+        }
+        .profile-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 20px; border-bottom: 1px solid #eee; flex-shrink: 0;
+        }
+        .profile-header h3 { font-size: 14px; color: #333; margin: 0; }
+        .profile-header .header-info { font-size: 12px; color: #888; }
+        .profile-close { border: none; background: none; font-size: 20px; cursor: pointer; color: #999; }
+        .profile-close:hover { color: #333; }
+        .profile-split { display: flex; flex: 1; overflow: hidden; }
+        .profile-list {
+            width: 340px; min-width: 340px; border-right: 1px solid #eee;
+            overflow-y: auto; background: #fafafa;
+        }
+        .profile-list-item {
+            padding: 10px 14px; border-bottom: 1px solid #eee; cursor: pointer;
+            font-size: 12px; display: flex; flex-direction: column; gap: 3px;
+        }
+        .profile-list-item:hover { background: #f0f4ff; }
+        .profile-list-item.active { background: #e8f0fe; border-left: 3px solid #4a90d9; }
+        .profile-list-item .item-service { font-weight: bold; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .profile-list-item .item-meta { display: flex; gap: 12px; color: #888; font-size: 11px; }
+        .profile-list-item .item-elapsed { font-weight: bold; }
+        .profile-list-item .item-elapsed.slow { color: #e67e22; }
+        .profile-list-item .item-elapsed.warn { color: #e74c3c; }
+        .profile-list-item .item-elapsed.fast { color: #27ae60; }
+        .profile-detail { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+        .profile-info { padding: 10px 20px; background: #f8f9fa; font-size: 12px; color: #555; display: flex; gap: 20px; flex-wrap: wrap; flex-shrink: 0; }
+        .profile-info span { display: flex; align-items: center; gap: 4px; }
+        .profile-info .label { font-weight: bold; color: #333; }
+        .profile-body { padding: 0; flex: 1; overflow-y: auto; }
+        .profile-step {
+            padding: 6px 20px 6px 8px; font-size: 12px; font-family: 'Consolas', 'Courier New', monospace;
+            border-bottom: 1px solid #f0f0f0; display: flex; gap: 10px;
+        }
+        .profile-step:hover { background: #f8f9fa; }
+        .profile-step .step-time { min-width: 70px; color: #888; text-align: right; }
+        .profile-step .step-type { width: 110px; flex-shrink: 0; font-weight: bold; }
+        .profile-step .step-type.SQL { color: #2980b9; }
+        .profile-step .step-type.SQL3 { color: #2980b9; }
+        .profile-step .step-type.SQL2 { color: #2980b9; }
+        .profile-step .step-type.METHOD { color: #27ae60; }
+        .profile-step .step-type.APICALL { color: #e67e22; }
+        .profile-step .step-type.HASHED_MESSAGE { color: #8e44ad; }
+        .profile-step .step-value { flex: 1; word-break: break-all; }
+        /* 인덴트 가이드라인 */
+        .indent-guides { display: flex; flex-shrink: 0; }
+        .indent-guide { width: 20px; border-right: 1px dashed #d0d0d0; flex-shrink: 0; margin: -6px 0; padding: 6px 0; }
+        .profile-step:hover .indent-guide { border-right-color: #aaa; }
+        .profile-step .step-elapsed { min-width: 60px; text-align: right; color: #e74c3c; }
+        .profile-step .step-self { min-width: 70px; text-align: right; color: #2980b9; font-size: 11px; }
+        .profile-step .step-cpu { min-width: 75px; text-align: right; color: #16a085; font-size: 11px; }
+        .profile-step .step-cpu.wait { color: #e67e22; }
+        .profile-step.bottleneck { background: #fff5f5; border-left: 3px solid #e74c3c; }
+        .profile-step.bottleneck .step-self::after { content: ' ★'; color: #e74c3c; font-size: 10px; }
+        .profile-step.filtered { display: none; }
+        .profile-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #999; font-size: 14px; }
+        .layer-badge {
+            font-size: 9px; padding: 1px 5px; border-radius: 3px;
+            color: #fff; font-weight: bold; font-family: 'Malgun Gothic', sans-serif;
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .layer-badge.CTRL { background: #3498db; }
+        .layer-badge.SVC  { background: #27ae60; }
+        .layer-badge.SEC  { background: #e67e22; }
+        .layer-badge.LOG  { background: #95a5a6; }
+        .layer-badge.DTO  { background: #9b59b6; }
+        .layer-badge.JDBC { background: #34495e; }
+        .layer-badge.EXC  { background: #e74c3c; }
+        .layer-badge.ETC  { background: #bdc3c7; color: #555; }
+        .step-layer { width: 40px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+        .profile-filter { padding: 6px 20px; border-bottom: 1px solid #eee; font-size: 12px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; background: #fafafa; }
+        .profile-filter label { cursor: pointer; user-select: none; }
+        .ratio-section { padding: 10px 20px; border-bottom: 1px solid #eee; flex-shrink: 0; }
+        .ratio-bar { display: flex; height: 22px; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+        .ratio-bar-seg { display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: #fff; min-width: 0; white-space: nowrap; overflow: hidden; }
+        .ratio-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #555; }
+        .ratio-legend-item { display: flex; align-items: center; gap: 4px; }
+        .ratio-legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+        /* 모드 표시 */
+        .mode-indicator {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 12px; padding: 3px 10px; border-radius: 12px; font-weight: bold;
+        }
+        .mode-indicator.realtime { background: #e8f5e9; color: #27ae60; }
+        .mode-indicator.history { background: #e3f2fd; color: #2196f3; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Scouter XLog Monitor</h1>
+    <p class="subtitle">
+        <span class="mode-indicator realtime" id="modeIndicator">REALTIME</span>
+        <span id="subtitleText"></span>
+    </p>
+
+    <div class="config-bar">
+        <label>Scouter API</label>
+        <input type="text" id="apiUrl" value="" style="width: 180px;">
+        <label>Object</label>
+        <select id="objSelect"><option value="">로딩 중...</option></select>
+        <label>날짜</label>
+        <input type="date" id="dateInput">
+        <label>시간</label>
+        <input type="time" id="startTime" value="00:00">
+        <span>~</span>
+        <input type="time" id="endTime" value="23:59">
+        <button id="btnQuery" onclick="queryXLog()">조회</button>
+        <span id="statusMsg"></span>
+        <div class="auto-refresh">
+            <input type="checkbox" id="autoRefresh" checked onchange="toggleAutoRefresh()">
+            <label for="autoRefresh">자동갱신</label>
+            <select id="refreshInterval" onchange="toggleAutoRefresh()">
+                <option value="2000" selected>2초</option>
+                <option value="3000">3초</option>
+                <option value="5000">5초</option>
+                <option value="10000">10초</option>
+                <option value="30000">30초</option>
+            </select>
+            <label>윈도우</label>
+            <select id="timeWindow">
+                <option value="5">5분</option>
+                <option value="10" selected>10분</option>
+                <option value="30">30분</option>
+                <option value="60">1시간</option>
+            </select>
+        </div>
+        <a class="nav-link" href="scouter-report.html">리포트로 이동 &rarr;</a>
+    </div>
+
+    <!-- 오버레이 카운터 토글 -->
+    <div class="overlay-bar">
+        <span class="overlay-label">오버레이</span>
+        <label><input type="checkbox" class="overlay-chk" value="TPS" onchange="updateOverlays()">
+            <span class="overlay-color" style="background:#4a90d9;"></span> TPS <span class="axis-tag tag-r1">R1</span></label>
+        <label><input type="checkbox" class="overlay-chk" value="ActiveService" onchange="updateOverlays()">
+            <span class="overlay-color" style="background:#e74c3c;"></span> Active <span class="axis-tag tag-r1">R1</span></label>
+        <label><input type="checkbox" class="overlay-chk" value="ProcCpu" onchange="updateOverlays()">
+            <span class="overlay-color" style="background:#f39c12;"></span> ProcCpu <span class="axis-tag tag-r2">R2</span></label>
+        <label><input type="checkbox" class="overlay-chk" value="HeapUsed" onchange="updateOverlays()">
+            <span class="overlay-color" style="background:#9b59b6;"></span> Heap <span class="axis-tag tag-r3">R3</span></label>
+        <span style="color:#ccc; margin:0 4px;">|</span>
+        <label><input type="checkbox" class="overlay-chk" value="Cpu" onchange="updateOverlays()">
+            <span class="overlay-color" style="background:#27ae60;"></span> HostCPU <span class="axis-tag tag-r2">R2</span></label>
+        <label><input type="checkbox" class="overlay-chk" value="Mem" onchange="updateOverlays()">
+            <span class="overlay-color" style="background:#16a085;"></span> HostMem <span class="axis-tag tag-r2">R2</span></label>
+    </div>
+
+    <!-- XLog 차트 -->
+    <div class="xlog-container" id="xlogContainer">
+        <div class="xlog-header">
+            <h3>XLog (트랜잭션 분포)</h3>
+            <span class="xlog-stats" id="xlogStats"></span>
+            <span id="alertToast" class="alert-toast"></span>
+        </div>
+        <canvas id="chartXlog" height="140"></canvas>
+        <div class="xlog-legend" id="xlogLegend"></div>
+    </div>
+
+    <!-- 느린 API Top 10 -->
+    <div class="table-container">
+        <h3>느린 API Top 10</h3>
+        <table class="slow-api-table">
+            <thead><tr><th>#</th><th>인스턴스</th><th>서비스명</th><th>TXID</th><th>응답시간(ms)</th><th>시간</th></tr></thead>
+            <tbody id="slowApiBody"><tr><td colspan="6" style="text-align:center;color:#999;">조회 대기 중</td></tr></tbody>
+        </table>
+    </div>
+
+    <!-- 알림 이력 -->
+    <div class="table-container alert-section">
+        <h3>알림 이력</h3>
+        <div class="alert-filters" id="alertFilters">
+            <button class="alert-filter-btn active" onclick="filterAlerts('ALL', this)">전체<span class="count" id="alertCountALL">0</span></button>
+            <button class="alert-filter-btn" onclick="filterAlerts('FATAL', this)">FATAL<span class="count" id="alertCountFATAL">0</span></button>
+            <button class="alert-filter-btn" onclick="filterAlerts('ERROR', this)">ERROR<span class="count" id="alertCountERROR">0</span></button>
+            <button class="alert-filter-btn" onclick="filterAlerts('WARN', this)">WARN<span class="count" id="alertCountWARN">0</span></button>
+            <button class="alert-filter-btn" onclick="filterAlerts('INFO', this)">INFO<span class="count" id="alertCountINFO">0</span></button>
+        </div>
+        <div class="alert-list" id="alertList"><div class="alert-item" style="color:#999;">조회 대기 중</div></div>
+    </div>
+</div>
+
+<!-- 프로파일 모달 -->
+<div class="profile-overlay" id="profileOverlay" onclick="if(event.target===this)closeProfile()">
+    <div class="profile-modal">
+        <div class="profile-header">
+            <h3 id="profileTitle">XLog Profile</h3>
+            <span class="header-info" id="profileHeaderInfo"></span>
+            <button class="profile-close" onclick="closeProfile()">&times;</button>
+        </div>
+        <div class="profile-split">
+            <div class="profile-list" id="profileList"></div>
+            <div class="profile-detail">
+                <div class="profile-info" id="profileInfo"></div>
+                <div class="ratio-section" id="ratioSection" style="display:none;"></div>
+                <div class="profile-filter" id="profileFilter" style="display:none;">
+                    <label><input type="checkbox" id="chkHideBuilder" checked onchange="applyProfileFilter()"> Builder 숨김</label>
+                    <label><input type="checkbox" id="chkHideLog" onchange="applyProfileFilter()"> Logging 숨김</label>
+                    <label><input type="checkbox" id="chkHideDto" onchange="applyProfileFilter()"> DTO getter/setter 숨김</label>
+                    <span id="profileFilterCount" style="color:#888; margin-left:auto;"></span>
+                </div>
+                <div class="profile-body" id="profileBody">
+                    <div class="profile-empty">왼쪽 목록에서 트랜잭션을 선택하세요</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==================== 상태 ====================
+    let objectsCache = [];
+    let xlogDataPoints = [];
+    let chart = null;
+    let autoRefreshTimer = null;
+    let cachedServerId = null;
+    let slowApiXlogs = [];
+    let allAlerts = [];
+
+    // 실시간 모드 상태
+    let realtimeOffset1 = 0;
+    let realtimeOffset2 = 0;
+    let isRealtime = true;
+    let realtimeStartTime = 0; // 실시간 모드 시작 시점 (이전 버퍼 필터용)
+
+    // 오버레이 카운터 데이터 (카운터키 → { times, values })
+    let overlayData = {};
+    // 통합 모드: 인스턴스별 카운터 (카운터키 → [{ objName, times, values }])
+    let overlayDataPerInstance = {};
+
+    // 인스턴스 색상 매핑
+    const INSTANCE_COLORS = ['#3498db', '#2ecc71', '#9b59b6', '#1abc9c', '#e67e22', '#34495e'];
+    let instanceColorMap = {}; // objHash → color
+
+    // 오버레이 카운터 메타 (host: true → Host 에이전트 objHash 사용)
+    // 축 분리: yRight=카운트(TPS,Active), yRight2=%(CPU,Mem), yRight3=MB(Heap)
+    const OVERLAY_COUNTERS = {
+        TPS:           { label: 'TPS',           unit: 'tps', color: '#4a90d9', aggregate: 'sum', axisId: 'yRight' },
+        ActiveService: { label: 'Active Service', unit: '건',  color: '#e74c3c', aggregate: 'sum', axisId: 'yRight' },
+        ProcCpu:       { label: 'Process CPU',   unit: '%',   color: '#f39c12', aggregate: 'each', axisId: 'yRight2' },
+        HeapUsed:      { label: 'Heap Used',     unit: 'MB',  color: '#9b59b6', aggregate: 'each', axisId: 'yRight3' },
+        Cpu:           { label: 'Host CPU',      unit: '%',   color: '#27ae60', aggregate: 'each', axisId: 'yRight2', host: true },
+        Mem:           { label: 'Host Memory',   unit: '%',   color: '#16a085', aggregate: 'each', axisId: 'yRight2', host: true }
+    };
+    let hostObjHashes = []; // Host 에이전트 objHash 목록
+
+    // ==================== 초기화 ====================
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    document.getElementById('apiUrl').value = window.location.origin;
+    document.getElementById('dateInput').value = yyyy + '-' + mm + '-' + dd;
+
+    window.addEventListener('load', async () => {
+        await loadObjects();
+        // 자동갱신 기본 ON → 시작
+        toggleAutoRefresh();
+    });
+
+    // ==================== API ====================
+    function getApiBase() { return document.getElementById('apiUrl').value.replace(/\/$/, ''); }
+
+    async function apiFetch(path) {
+        const res = await fetch(getApiBase() + path);
+        if (!res.ok) throw new Error('API error: ' + res.status);
+        const json = await res.json();
+        if (String(json.status) !== '200') throw new Error('Scouter error: ' + json.message);
+        return json;
+    }
+
+    async function getServerId() {
+        if (cachedServerId) return cachedServerId;
+        const info = await apiFetch('/scouter/v1/info/server');
+        cachedServerId = info.result[0].id;
+        return cachedServerId;
+    }
+
+    // ==================== 에이전트 목록 ====================
+    async function loadObjects() {
+        try {
+            const data = await apiFetch('/scouter/v1/object');
+            objectsCache = data.result || [];
+            const select = document.getElementById('objSelect');
+            select.innerHTML = '';
+            if (objectsCache.length === 0) {
+                select.innerHTML = '<option value="">Object 없음</option>';
+                return;
+            }
+            // Java 인스턴스만 (XLog는 Java 전용)
+            const javaObjs = objectsCache.filter(o => o.objFamily !== 'host');
+            // Host 에이전트 objHash 저장 (오버레이용)
+            hostObjHashes = objectsCache.filter(o => o.objFamily === 'host').map(o => String(o.objHash));
+            // [전체 Java] 그룹 (2개 이상)
+            if (javaObjs.length >= 2) {
+                const opt = document.createElement('option');
+                opt.value = javaObjs.map(o => o.objHash).join(',');
+                opt.textContent = '[전체 Java] (' + javaObjs.length + '개)';
+                opt.dataset.group = 'true';
+                select.appendChild(opt);
+            }
+            // 개별 인스턴스
+            javaObjs.forEach((obj, i) => {
+                const opt = document.createElement('option');
+                opt.value = obj.objHash;
+                opt.textContent = obj.objName + ' (' + obj.objType + ')';
+                select.appendChild(opt);
+                // 색상 매핑
+                instanceColorMap[String(obj.objHash)] = INSTANCE_COLORS[i % INSTANCE_COLORS.length];
+            });
+        } catch (e) {
+            document.getElementById('statusMsg').textContent = 'Scouter 연결 실패: ' + e.message;
+            document.getElementById('objSelect').innerHTML = '<option value="">연결 실패</option>';
+        }
+    }
+
+    // ==================== 모드 전환 ====================
+    function setMode(realtime) {
+        isRealtime = realtime;
+        const indicator = document.getElementById('modeIndicator');
+        if (realtime) {
+            indicator.textContent = 'REALTIME';
+            indicator.className = 'mode-indicator realtime';
+        } else {
+            indicator.textContent = 'HISTORY';
+            indicator.className = 'mode-indicator history';
+        }
+    }
+
+    // ==================== 자동갱신 ====================
+    let alertRefreshTimer = null;
+    function toggleAutoRefresh() {
+        if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+        if (alertRefreshTimer) { clearInterval(alertRefreshTimer); alertRefreshTimer = null; }
+        const checked = document.getElementById('autoRefresh').checked;
+        if (checked) {
+            setMode(true);
+            realtimeStartTime = Date.now(); // 실시간 시작 시점 기록
+            realtimeOffset1 = 0;
+            realtimeOffset2 = 0;
+            xlogDataPoints = [];
+            const interval = Number(document.getElementById('refreshInterval').value);
+            fetchRealtime();
+            loadAlerts();
+            autoRefreshTimer = setInterval(fetchRealtime, interval);
+            alertRefreshTimer = setInterval(loadAlerts, interval);
+        }
+    }
+
+    // ==================== 조회 버튼 (히스토리 모드) ====================
+    async function queryXLog() {
+        // 자동갱신 중지
+        document.getElementById('autoRefresh').checked = false;
+        if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+        setMode(false);
+
+        const objHash = document.getElementById('objSelect').value;
+        if (!objHash) { setStatus('Object를 선택하세요', true); return; }
+
+        const dateStr = document.getElementById('dateInput').value;
+        const parts = dateStr.split('-');
+        const year = Number(parts[0]), month = Number(parts[1]) - 1, day = Number(parts[2]);
+        const startTimeStr = document.getElementById('startTime').value || '00:00';
+        const endTimeStr = document.getElementById('endTime').value || '23:59';
+        const [sh, sm] = startTimeStr.split(':').map(Number);
+        const [eh, em] = endTimeStr.split(':').map(Number);
+        const startTime = new Date(year, month, day, sh, sm, 0).getTime();
+        const endTime = new Date(year, month, day, eh, em, 59).getTime();
+        const yyyymmdd = parts.join('');
+
+        document.getElementById('btnQuery').disabled = true;
+        setStatus('데이터 수집 중...', false);
+
+        try {
+            // XLog 히스토리 조회 (커서 기반 페이지네이션)
+            let allXlogs = [];
+            const sid = await getServerId();
+            const CHUNK = 5 * 60 * 1000; // 5분 단위 시간 분할
+            for (let t = startTime; t < endTime; t += CHUNK) {
+                const chunkEnd = Math.min(t + CHUNK, endTime);
+                // 커서 기반 페이지네이션: hasMore가 true인 동안 반복
+                let lastTxid = null;
+                let lastXLogTime = null;
+                const MAX_PAGES = 100;
+                for (let page = 0; page < MAX_PAGES; page++) {
+                    let url = '/scouter/v1/xlog/' + yyyymmdd
+                        + '?objHashes=' + objHash
+                        + '&startTimeMillis=' + t
+                        + '&endTimeMillis=' + chunkEnd
+                        + '&serverId=' + sid;
+                    if (lastTxid) {
+                        url += '&lastTxid=' + lastTxid + '&lastXLogTime=' + lastXLogTime;
+                    }
+                    const data = await apiFetch(url);
+                    const result = data.result || {};
+                    const xlogs = result.xlogs || [];
+                    xlogs.forEach(x => {
+                        const et = Number(x.endTime);
+                        if (et >= startTime && et <= endTime) allXlogs.push(x);
+                    });
+                    if (!result.hasMore || xlogs.length === 0) break;
+                    lastTxid = result.lastTxid;
+                    lastXLogTime = result.lastXLogTime;
+                }
+                setStatus('데이터 수집 중... ' + allXlogs.length + '건', false);
+                // 수집 상한 없음 — 전체 수집
+            }
+
+            await resolveServiceNames(allXlogs, yyyymmdd);
+            xlogDataPoints = buildDataPoints(allXlogs);
+            drawXLogChart(true);
+            updateSlowApiTable();
+            loadAlerts();
+
+            // 오버레이 카운터 수집
+            await fetchOverlayCounters(objHash, startTime, endTime);
+            drawOverlays();
+
+            setStatus('조회 완료! ' + allXlogs.length + '건 (' + new Date().toLocaleTimeString() + ')', false);
+            document.getElementById('xlogStats').textContent = '총 ' + xlogDataPoints.length + '건';
+        } catch (e) {
+            setStatus('오류: ' + e.message, true);
+        } finally {
+            document.getElementById('btnQuery').disabled = false;
+        }
+    }
+
+    // ==================== 실시간 모드 ====================
+    let fetchingRealtime = false;
+
+    async function fetchRealtime() {
+        if (fetchingRealtime) return;
+        const objHash = document.getElementById('objSelect').value;
+        if (!objHash) return;
+
+        fetchingRealtime = true;
+        try {
+            const sid = await getServerId();
+            const url = '/scouter/v1/xlog/realTime/' + realtimeOffset1 + '/' + realtimeOffset2
+                + '?objHashes=' + objHash + '&serverId=' + sid;
+            const data = await apiFetch(url);
+            const result = data.result || {};
+            const xlogs = result.xlogs || [];
+
+            // offset 업데이트 (다음 호출에 사용)
+            if (result.xlogLoop != null) realtimeOffset1 = result.xlogLoop;
+            if (result.xlogIndex != null) realtimeOffset2 = result.xlogIndex;
+
+            if (xlogs.length > 0) {
+                const dateStr = document.getElementById('dateInput').value.replace(/-/g, '');
+                await resolveServiceNames(xlogs, dateStr);
+                const newPoints = buildDataPoints(xlogs);
+                // 실시간 시작 시점 이전 버퍼 데이터 필터 (첫 호출에서 서버 버퍼의 과거 데이터 제외)
+                const filtered = realtimeStartTime > 0
+                    ? newPoints.filter(p => p.x >= realtimeStartTime)
+                    : newPoints;
+                xlogDataPoints.push(...filtered);
+            }
+
+            // 시간 윈도우 적용 (오래된 데이터 제거)
+            const windowMin = Number(document.getElementById('timeWindow').value);
+            const cutoff = Date.now() - windowMin * 60 * 1000;
+            xlogDataPoints = xlogDataPoints.filter(p => p.x >= cutoff);
+
+            drawXLogChart();
+            updateSlowApiTable();
+
+            // 오버레이 카운터 (실시간: 최근 윈도우 범위)
+            const now = Date.now();
+            const windowStart = now - windowMin * 60 * 1000;
+            await fetchOverlayCounters(objHash, windowStart, now);
+            drawOverlays();
+
+            document.getElementById('xlogStats').textContent = '총 ' + xlogDataPoints.length + '건';
+            document.getElementById('subtitleText').textContent = ' | ' + new Date().toLocaleTimeString() + ' 갱신';
+        } catch (e) {
+            document.getElementById('subtitleText').textContent = ' | 연결 오류: ' + e.message;
+        } finally {
+            fetchingRealtime = false;
+        }
+    }
+
+    // ==================== 서비스명 변환 ====================
+    async function resolveServiceNames(xlogs, yyyymmdd) {
+        if (!xlogs || xlogs.length === 0) return;
+        try {
+            const serverId = await getServerId();
+            const hashes = [...new Set(xlogs.map(x => x.service))];
+            const nameMap = {};
+            for (let i = 0; i < hashes.length; i += 50) {
+                const chunk = hashes.slice(i, i + 50);
+                const dictKeys = chunk.map(h => 'service:' + h).join(',');
+                const data = await apiFetch('/scouter/v1/dictionary/' + yyyymmdd + '?dictKeys=' + dictKeys + '&serverId=' + serverId);
+                (data.result || []).forEach(d => { nameMap[d.dictKey] = d.text; });
+            }
+            xlogs.forEach(x => { x.serviceName = nameMap[x.service] || x.service; });
+        } catch (e) { /* 변환 실패 시 해시값 그대로 */ }
+        // 에러 해시 → 에러 메시지 변환
+        try {
+            const errorHashes = [...new Set(xlogs.filter(x => x.error && Number(x.error) !== 0).map(x => x.error))];
+            if (errorHashes.length > 0) {
+                const serverId = await getServerId();
+                const errorMap = {};
+                for (let i = 0; i < errorHashes.length; i += 50) {
+                    const chunk = errorHashes.slice(i, i + 50);
+                    const dictKeys = chunk.map(h => 'error:' + h).join(',');
+                    const data = await apiFetch('/scouter/v1/dictionary/' + yyyymmdd + '?dictKeys=' + dictKeys + '&serverId=' + serverId);
+                    (data.result || []).forEach(d => { errorMap[d.dictKey] = d.text; });
+                }
+                xlogs.forEach(x => {
+                    if (x.error && Number(x.error) !== 0) {
+                        x.errorMessage = errorMap[String(x.error)] || ('error hash: ' + x.error);
+                    }
+                });
+            }
+        } catch (e) { /* 에러 메시지 변환 실패 시 무시 */ }
+        // objHash → objName 매핑
+        xlogs.forEach(x => {
+            const obj = objectsCache.find(o => String(o.objHash) === String(x.objHash));
+            x.objName = obj ? obj.objName.split('/').pop() : '';
+        });
+    }
+
+    // ==================== XLog 데이터포인트 빌드 ====================
+    const YAXIS_CAP = 10000; // y축 상한 (10초) — 초과 시 10초 라인에 고정
+    function buildDataPoints(xlogs) {
+        return xlogs.map(x => {
+            const elapsed = Number(x.elapsed);
+            const error = x.error && Number(x.error) !== 0;
+            const objHash = String(x.objHash);
+
+            // 색상 결정: 에러 > 10000ms(빨강, 캡라인) > 3000ms(주황) > 인스턴스별 색상
+            let color;
+            if (error) {
+                color = 'rgba(0,0,0,0.7)';
+            } else if (elapsed >= YAXIS_CAP) {
+                color = 'rgba(231,76,60,0.8)'; // 빨강 (캡라인 이상)
+            } else if (elapsed >= 3000) {
+                color = 'rgba(243,156,18,0.8)'; // 주황
+            } else {
+                // 인스턴스별 색상
+                const hex = instanceColorMap[objHash] || '#3498db';
+                color = hexToRgba(hex, 0.6);
+            }
+
+            let sqlCount = Number(x.sqlCount) || 0;
+            let sqlTime = Number(x.sqlTime) || 0;
+
+            return {
+                x: Number(x.endTime), y: Math.min(elapsed, YAXIS_CAP), realY: elapsed, color, error,
+                errorMessage: x.errorMessage || '',
+                status: Number(x.status) || 0,
+                service: x.serviceName || x.service || '',
+                txid: x.txid, sqlCount,
+                sqlTime,
+                apicallCount: Number(x.apicallCount) || 0,
+                apicallTime: Number(x.apicallTime) || 0,
+                cpu: Number(x.cpu) || 0,
+                ipaddr: x.ipaddr || '',
+                objName: x.objName || '', objHash
+            };
+        });
+    }
+
+    function hexToRgba(hex, alpha) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+    }
+
+    // ==================== XLog 차트 ====================
+    // 표시 시간 범위 계산 (실시간: 윈도우 콤보박스, 히스토리: 조회 시간)
+    function getDisplayTimeRange() {
+        if (isRealtime) {
+            const windowMin = Number(document.getElementById('timeWindow').value);
+            const now = Date.now();
+            return { min: now - windowMin * 60 * 1000, max: now };
+        } else {
+            const dateStr = document.getElementById('dateInput').value;
+            const parts = dateStr.split('-');
+            const year = Number(parts[0]), month = Number(parts[1]) - 1, day = Number(parts[2]);
+            const [sh, sm] = (document.getElementById('startTime').value || '00:00').split(':').map(Number);
+            const [eh, em] = (document.getElementById('endTime').value || '23:59').split(':').map(Number);
+            return { min: new Date(year, month, day, sh, sm, 0).getTime(), max: new Date(year, month, day, eh, em, 59).getTime() };
+        }
+    }
+
+    function drawXLogChart(forceRecreate) {
+        const canvas = document.getElementById('chartXlog');
+        if (!canvas) return;
+        const timeRange = getDisplayTimeRange();
+
+        // 기존 차트가 있으면 데이터만 갱신 (오버레이는 유지하여 깜빡임 방지)
+        if (chart && !forceRecreate) {
+            const ds = chart.data.datasets[0];
+            ds.data = xlogDataPoints;
+            ds.pointBackgroundColor = xlogDataPoints.map(p => p.color);
+            ds.pointBorderColor = xlogDataPoints.map(p => p.color);
+            chart.options.scales.x.min = timeRange.min;
+            chart.options.scales.x.max = timeRange.max;
+            chart.update('none');
+            return;
+        }
+
+        if (chart) chart.destroy();
+
+        chart = new Chart(canvas, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'XLog',
+                    data: xlogDataPoints,
+                    pointBackgroundColor: xlogDataPoints.map(p => p.color),
+                    pointBorderColor: xlogDataPoints.map(p => p.color),
+                    pointRadius: 3.5, pointHoverRadius: 7,
+                    pointBorderWidth: 0,
+                    yAxisID: 'y'
+                }]
+            },
+            options: {
+                responsive: true,
+                animation: false,
+                onClick: function(evt, elements) {
+                    if (isDragSelection) return;
+                    if (elements.length > 0) {
+                        const dsIdx = elements[0].datasetIndex;
+                        if (dsIdx === 0) {
+                            openProfileModal([xlogDataPoints[elements[0].index]]);
+                        }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        filter: function(item) { return item.datasetIndex === 0; },
+                        callbacks: {
+                            label: function(ctx) {
+                                if (ctx.datasetIndex !== 0) return '';
+                                const p = xlogDataPoints[ctx.dataIndex];
+                                const t = new Date(p.x);
+                                const prefix = p.objName ? '[' + p.objName + '] ' : '';
+                                return prefix + p.service + ' | ' + p.realY + 'ms | ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds());
+                            }
+                        }
+                    },
+                    annotation: {
+                        annotations: {
+                            line3s: {
+                                type: 'line', yMin: 3000, yMax: 3000, yScaleID: 'y',
+                                borderColor: 'rgba(243,156,18,0.35)', borderWidth: 1, borderDash: [8, 4],
+                                label: { display: true, content: '3s', position: 'end', backgroundColor: 'rgba(243,156,18,0.55)', color: '#fff', font: { size: 9, weight: 'bold' }, padding: { top: 2, bottom: 2, left: 4, right: 4 }, borderRadius: 3 }
+                            },
+                            line10s: {
+                                type: 'line', yMin: YAXIS_CAP, yMax: YAXIS_CAP, yScaleID: 'y',
+                                borderColor: 'rgba(231,76,60,0.35)', borderWidth: 1, borderDash: [8, 4],
+                                label: { display: true, content: '10s (cap)', position: 'end', backgroundColor: 'rgba(231,76,60,0.55)', color: '#fff', font: { size: 9, weight: 'bold' }, padding: { top: 2, bottom: 2, left: 4, right: 4 }, borderRadius: 3 }
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        min: timeRange.min, max: timeRange.max,
+                        ticks: {
+                            callback: v => { const d = new Date(v); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); },
+                            maxTicksLimit: 12, font: { size: 11 }, color: '#888'
+                        },
+                        grid: { color: 'rgba(0,0,0,0.06)', drawTicks: true, tickLength: 4 },
+                        border: { color: '#ccc' }
+                    },
+                    y: {
+                        type: 'linear', position: 'left',
+                        beginAtZero: true, max: YAXIS_CAP,
+                        title: { display: true, text: 'Elapsed (ms)', font: { size: 11 }, color: '#888' },
+                        ticks: { font: { size: 11 }, color: '#888' },
+                        grid: { color: 'rgba(0,0,0,0.06)' },
+                        border: { color: '#ccc' }
+                    },
+                    yRight: {
+                        type: 'linear', position: 'right',
+                        beginAtZero: true,
+                        display: false,
+                        grid: { drawOnChartArea: false },
+                        ticks: { font: { size: 10 }, color: '#aaa' },
+                        border: { dash: [3, 3], color: '#ddd' },
+                        title: { display: true, text: '', font: { size: 10 }, color: '#aaa' }
+                    },
+                    yRight2: {
+                        type: 'linear', position: 'right',
+                        beginAtZero: true, max: 100,
+                        display: false,
+                        grid: { drawOnChartArea: false },
+                        ticks: { font: { size: 10 }, color: '#aaa', callback: v => v + '%' },
+                        border: { dash: [3, 3], color: '#ddd' },
+                        title: { display: true, text: '', font: { size: 10 }, color: '#aaa' }
+                    },
+                    yRight3: {
+                        type: 'linear', position: 'right',
+                        beginAtZero: true,
+                        display: false,
+                        grid: { drawOnChartArea: false },
+                        ticks: { font: { size: 10 }, color: '#aaa' },
+                        border: { dash: [3, 3], color: '#ddd' },
+                        title: { display: true, text: '', font: { size: 10 }, color: '#aaa' }
+                    }
+                }
+            }
+        });
+
+        // 드래그 선택 셋업 (차트 생성 시에만)
+        setupXLogDrag(canvas);
+        updateLegend();
+    }
+
+    // ==================== 범례 ====================
+    function updateLegend() {
+        const legendEl = document.getElementById('xlogLegend');
+        let html = '';
+        // 인스턴스별 색상
+        const selectedOpt = document.getElementById('objSelect').selectedOptions[0];
+        const isGroup = selectedOpt && selectedOpt.dataset.group === 'true';
+        if (isGroup) {
+            const javaObjs = objectsCache.filter(o => o.objFamily !== 'host');
+            javaObjs.forEach(obj => {
+                const c = instanceColorMap[String(obj.objHash)] || '#3498db';
+                const name = obj.objName.split('/').pop();
+                html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:' + c + '"></div>' + name + '</div>';
+            });
+        } else {
+            html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(52,152,219,0.6)"></div>정상 (&lt;3초)</div>';
+        }
+        html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(243,156,18,0.8)"></div>느림 (&ge;3초)</div>';
+        html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(231,76,60,0.8)"></div>매우느림 (&ge;10초, 캡)</div>';
+        html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(0,0,0,0.7)"></div>에러</div>';
+        legendEl.innerHTML = html;
+    }
+
+    // ==================== 오버레이 카운터 ====================
+    async function fetchOverlayCounters(objHash, startTime, endTime) {
+        const checkedCounters = getCheckedOverlays();
+        if (checkedCounters.length === 0) { overlayData = {}; overlayDataPerInstance = {}; return; }
+
+        const isGroup = document.getElementById('objSelect').selectedOptions[0]?.dataset.group === 'true';
+        const objHashes = objHash.split(',');
+
+        overlayData = {};
+        overlayDataPerInstance = {};
+
+        for (const key of checkedCounters) {
+            const meta = OVERLAY_COUNTERS[key];
+            if (!meta) continue;
+
+            // Host 카운터는 Host 에이전트 objHash로 조회
+            if (meta.host) {
+                if (hostObjHashes.length === 0) continue;
+                if (hostObjHashes.length === 1) {
+                    overlayData[key] = await fetchCounter(hostObjHashes[0], key, startTime, endTime);
+                } else {
+                    // Host가 여러 개면 인스턴스별
+                    overlayDataPerInstance[key] = [];
+                    for (const hoh of hostObjHashes) {
+                        const result = await fetchCounter(hoh, key, startTime, endTime);
+                        const obj = objectsCache.find(o => String(o.objHash) === hoh);
+                        const name = obj ? obj.objName.split('/').pop() : hoh;
+                        overlayDataPerInstance[key].push({ objName: name, objHash: hoh, ...result });
+                    }
+                }
+            } else if (isGroup && meta.aggregate === 'each') {
+                // 인스턴스별 개별 조회
+                overlayDataPerInstance[key] = [];
+                for (const oh of objHashes) {
+                    const result = await fetchCounter(oh, key, startTime, endTime);
+                    const obj = objectsCache.find(o => String(o.objHash) === oh);
+                    const name = obj ? obj.objName.split('/').pop() : oh;
+                    overlayDataPerInstance[key].push({ objName: name, objHash: oh, ...result });
+                }
+            } else {
+                // 합산 또는 단일 인스턴스
+                if (isGroup && meta.aggregate === 'sum') {
+                    // 각 인스턴스 조회 후 합산
+                    const allResults = [];
+                    for (const oh of objHashes) {
+                        allResults.push(await fetchCounter(oh, key, startTime, endTime));
+                    }
+                    overlayData[key] = aggregateCounters(allResults);
+                } else {
+                    overlayData[key] = await fetchCounter(objHash, key, startTime, endTime);
+                }
+            }
+        }
+    }
+
+    async function fetchCounter(objHash, counter, startTime, endTime) {
+        try {
+            const times = [], values = [];
+            const SIX_HOURS = 6 * 60 * 60 * 1000;
+            let chunkStart = startTime;
+            while (chunkStart < endTime) {
+                const chunkEnd = Math.min(chunkStart + SIX_HOURS, endTime);
+                const sid = await getServerId();
+                const data = await apiFetch(
+                    '/scouter/v1/counter/' + counter
+                    + '?objHashes=' + objHash
+                    + '&startTimeMillis=' + chunkStart
+                    + '&endTimeMillis=' + chunkEnd
+                    + '&serverId=' + sid
+                );
+                (data.result || []).forEach(item => {
+                    if (item.timeList && item.valueList) {
+                        item.timeList.forEach((t, i) => {
+                            times.push(Number(t));
+                            values.push(Number(item.valueList[i]) || 0);
+                        });
+                    }
+                });
+                chunkStart = chunkEnd;
+            }
+            return { times, values };
+        } catch (e) {
+            return { times: [], values: [] };
+        }
+    }
+
+    function aggregateCounters(results) {
+        // 기준 인스턴스 시간축 + 이진탐색 최근접 매칭 합산 (버킷 가정 없음)
+        if (results.length === 0) return { times: [], values: [] };
+        // 각 인스턴스 시간순 정렬
+        var series = results.map(function(r) {
+            var pairs = r.times.map(function(t, i) { return { t: t, v: r.values[i] || 0 }; });
+            pairs.sort(function(a, b) { return a.t - b.t; });
+            return { times: pairs.map(function(p) { return p.t; }), values: pairs.map(function(p) { return p.v; }) };
+        });
+        if (series.length === 1) return { times: series[0].times, values: series[0].values };
+        // 데이터 포인트가 가장 많은 인스턴스를 기준축으로
+        var refIdx = 0;
+        for (var i = 1; i < series.length; i++) {
+            if (series[i].times.length > series[refIdx].times.length) refIdx = i;
+        }
+        var refTimes = series[refIdx].times;
+        var times = [], values = [];
+        refTimes.forEach(function(t, ri) {
+            var sum = series[refIdx].values[ri];
+            for (var si = 0; si < series.length; si++) {
+                if (si === refIdx) continue;
+                var s = series[si];
+                if (s.times.length === 0) continue;
+                var lo = 0, hi = s.times.length - 1;
+                while (lo < hi) {
+                    var mid = (lo + hi) >> 1;
+                    if (s.times[mid] < t) lo = mid + 1; else hi = mid;
+                }
+                var best = lo;
+                if (lo > 0 && Math.abs(s.times[lo - 1] - t) < Math.abs(s.times[lo] - t)) best = lo - 1;
+                sum += s.values[best];
+            }
+            times.push(t);
+            values.push(sum);
+        });
+        return { times: times, values: values };
+    }
+
+    function getCheckedOverlays() {
+        return [...document.querySelectorAll('.overlay-chk:checked')].map(c => c.value);
+    }
+
+    function drawOverlays() {
+        if (!chart) return;
+        const checkedCounters = getCheckedOverlays();
+
+        // 기존 오버레이 데이터셋 제거 (인덱스 0 = XLog, 1~ = 오버레이)
+        while (chart.data.datasets.length > 1) {
+            chart.data.datasets.pop();
+        }
+
+        if (checkedCounters.length === 0) {
+            chart.options.scales.yRight.display = false;
+            chart.options.scales.yRight2.display = false;
+            chart.options.scales.yRight3.display = false;
+            chart.update('none');
+            return;
+        }
+
+        // 표시 시간 범위 (오버레이 데이터를 이 범위로 클리핑)
+        const { min: xRangeMin, max: xRangeMax } = getDisplayTimeRange();
+
+        // 오버레이 데이터셋 추가
+        const isGroup = document.getElementById('objSelect').selectedOptions[0]?.dataset.group === 'true';
+
+        checkedCounters.forEach(key => {
+            const meta = OVERLAY_COUNTERS[key];
+            if (!meta) return;
+            const axisId = meta.axisId || 'yRight';
+
+            if (isGroup && meta.aggregate === 'each' && overlayDataPerInstance[key]) {
+                // 인스턴스별 개별 라인
+                overlayDataPerInstance[key].forEach(inst => {
+                    const color = instanceColorMap[inst.objHash] || meta.color;
+                    const clipped = inst.times.map((t, i) => ({ x: t, y: inst.values[i] })).filter(p => p.x >= xRangeMin && p.x <= xRangeMax);
+                    chart.data.datasets.push({
+                        label: meta.label + ' [' + inst.objName + ']',
+                        data: clipped,
+                        type: 'line',
+                        borderColor: color,
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        tension: 0.4,
+                        yAxisID: axisId,
+                        order: -1
+                    });
+                });
+            } else if (overlayData[key]) {
+                // 합산 또는 단일
+                const od = overlayData[key];
+                const clipped = od.times.map((t, i) => ({ x: t, y: od.values[i] })).filter(p => p.x >= xRangeMin && p.x <= xRangeMax);
+                chart.data.datasets.push({
+                    label: meta.label,
+                    data: clipped,
+                    type: 'line',
+                    borderColor: meta.color,
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    tension: 0.4,
+                    yAxisID: axisId,
+                    order: -1
+                });
+            }
+        });
+
+        // 축별로 사용 여부, 단위, 색상 표시
+        const AXIS_COLORS = { yRight: '#4a90d9', yRight2: '#e67e22', yRight3: '#8e44ad' };
+        const AXIS_LABELS = { yRight: 'R1', yRight2: 'R2', yRight3: 'R3' };
+        const usedAxes = { yRight: [], yRight2: [], yRight3: [] };
+        checkedCounters.forEach(k => {
+            const meta = OVERLAY_COUNTERS[k];
+            if (meta) usedAxes[meta.axisId || 'yRight'].push(meta.unit);
+        });
+
+        ['yRight', 'yRight2', 'yRight3'].forEach(axisKey => {
+            const used = usedAxes[axisKey].length > 0;
+            const axColor = AXIS_COLORS[axisKey];
+            chart.options.scales[axisKey].display = used;
+            if (used) {
+                chart.options.scales[axisKey].title.text = AXIS_LABELS[axisKey] + ' ' + [...new Set(usedAxes[axisKey])].join('/');
+                chart.options.scales[axisKey].title.display = true;
+                chart.options.scales[axisKey].title.color = axColor;
+                chart.options.scales[axisKey].ticks.color = axColor;
+                chart.options.scales[axisKey].border.color = axColor;
+            }
+        });
+
+        chart.update('none');
+    }
+
+    function updateOverlays() {
+        // 이미 데이터가 있으면 바로 그리기, 없으면 무시 (다음 갱신에 반영)
+        drawOverlays();
+    }
+
+    // ==================== 드래그 선택 ====================
+    let isDragSelection = false;
+    let dragAbortController = null;
+
+    function setupXLogDrag(canvas) {
+        // 이전 리스너 제거
+        if (dragAbortController) dragAbortController.abort();
+        dragAbortController = new AbortController();
+        const signal = dragAbortController.signal;
+
+        // canvas를 감싸는 wrapper (좌표 기준점 일치용)
+        let wrapper = canvas.parentElement;
+        if (!wrapper.classList.contains('xlog-drag-wrapper')) {
+            wrapper = document.createElement('div');
+            wrapper.className = 'xlog-drag-wrapper';
+            wrapper.style.position = 'relative';
+            wrapper.style.width = '100%';
+            canvas.parentElement.insertBefore(wrapper, canvas);
+            wrapper.appendChild(canvas);
+        }
+
+        // selectBox 재사용 또는 생성
+        let selectBox = wrapper.querySelector('.xlog-select-box');
+        if (!selectBox) {
+            selectBox = document.createElement('div');
+            selectBox.className = 'xlog-select-box';
+            wrapper.appendChild(selectBox);
+        }
+        selectBox.style.display = 'none';
+
+        let dragging = false, startX = 0, startY = 0;
+
+        function getCssPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        }
+
+        canvas.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            dragging = true;
+            const pos = getCssPos(e);
+            startX = pos.x; startY = pos.y;
+            selectBox.style.left = startX + 'px';
+            selectBox.style.top = startY + 'px';
+            selectBox.style.width = '0';
+            selectBox.style.height = '0';
+            selectBox.style.display = 'none';
+        }, { signal });
+        canvas.addEventListener('mousemove', e => {
+            if (!dragging) return;
+            const pos = getCssPos(e);
+            const dx = Math.abs(pos.x - startX), dy = Math.abs(pos.y - startY);
+            if (dx > 5 || dy > 5) {
+                isDragSelection = true;
+                selectBox.style.display = 'block';
+                selectBox.style.left = Math.min(startX, pos.x) + 'px';
+                selectBox.style.top = Math.min(startY, pos.y) + 'px';
+                selectBox.style.width = dx + 'px';
+                selectBox.style.height = dy + 'px';
+            }
+        }, { signal });
+        canvas.addEventListener('mouseup', e => {
+            if (!dragging) return;
+            dragging = false;
+            const isVisible = selectBox.style.display === 'block';
+            selectBox.style.display = 'none';
+            setTimeout(() => { isDragSelection = false; }, 0);
+            if (!isVisible) return;
+
+            if (!chart) return;
+            const endPos = getCssPos(e);
+            const minPx = Math.min(startX, endPos.x), maxPx = Math.max(startX, endPos.x);
+            const minPy = Math.min(startY, endPos.y), maxPy = Math.max(startY, endPos.y);
+
+            const xScale = chart.scales.x, yScale = chart.scales.y;
+            const minXVal = xScale.getValueForPixel(minPx);
+            const maxXVal = xScale.getValueForPixel(maxPx);
+            const maxYVal = yScale.getValueForPixel(minPy);
+            const minYVal = yScale.getValueForPixel(maxPy);
+
+            const selected = xlogDataPoints.filter(p =>
+                p.x >= minXVal && p.x <= maxXVal && p.y >= minYVal && p.y <= maxYVal
+            );
+            if (selected.length > 0) openProfileModal(selected);
+        }, { signal });
+        canvas.addEventListener('mouseleave', () => {
+            if (dragging) { dragging = false; selectBox.style.display = 'none'; }
+        }, { signal });
+    }
+
+    // ==================== 느린 API Top 10 ====================
+    function updateSlowApiTable() {
+        const tbody = document.getElementById('slowApiBody');
+        if (!tbody) return;
+        if (!xlogDataPoints || xlogDataPoints.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const sorted = [...xlogDataPoints].sort((a, b) => b.realY - a.realY).slice(0, 10);
+        slowApiXlogs = sorted;
+        tbody.innerHTML = sorted.map((p, i) => {
+            const color = p.realY >= YAXIS_CAP ? '#e74c3c' : p.realY >= 3000 ? '#e67e22' : '#333';
+            return '<tr><td>' + (i + 1) + '</td>'
+                + '<td>' + escHtml(p.objName || '-') + '</td>'
+                + '<td>' + escHtml(p.service || '-') + '</td>'
+                + '<td><a href="#" style="color:#4a90d9;text-decoration:none;font-size:11px;" onclick="openSlowApiProfile(' + i + ');return false;">' + (p.txid || '-') + '</a></td>'
+                + '<td style="color:' + color + ';font-weight:bold;">' + p.realY.toLocaleString() + '</td>'
+                + '<td>' + formatTimeMs(p.x) + '</td></tr>';
+        }).join('');
+    }
+
+    function openSlowApiProfile(idx) {
+        const p = slowApiXlogs[idx];
+        if (p) openProfileModal([p]);
+    }
+
+    // ==================== 알림 이력 ====================
+    let prevAlertKeys = new Set();
+    let toastQueue = [];
+    let toastRunning = false;
+
+    let currentAlertFilter = 'ALL';
+
+    async function loadAlerts() {
+        try {
+            const sid = await getServerId();
+            const data = await apiFetch('/scouter/v1/alert/realTime/0/0?serverId=' + sid);
+            const alertArr = (data.result && data.result.alerts) ? data.result.alerts : (Array.isArray(data.result) ? data.result : []);
+
+            // 오늘 날짜 필터 (0시 기준)
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const todayMs = todayStart.getTime();
+
+            const newAlerts = alertArr
+                .filter(a => Number(a.time) >= todayMs)
+                .map(a => {
+                    const obj = objectsCache.find(o => o.objName === a.objName);
+                    const isHost = obj ? obj.objFamily === 'host' : (a.objType === 'linux' || a.objType === 'windows');
+                    return {
+                        level: (a.level || 'INFO').toUpperCase(),
+                        title: a.title || '',
+                        message: a.message || a.title || '',
+                        time: Number(a.time) || 0,
+                        objName: a.objName || '',
+                        objType: isHost ? 'host' : 'java'
+                    };
+                });
+
+            newAlerts.sort((a, b) => b.time - a.time);
+
+            // 신규 알림 감지 (time+level+message 조합으로 식별)
+            const newKeys = new Set(newAlerts.map(a => a.time + '|' + a.level + '|' + a.message));
+            if (prevAlertKeys.size > 0) {
+                newAlerts.forEach(a => {
+                    const key = a.time + '|' + a.level + '|' + a.message;
+                    if (!prevAlertKeys.has(key) && (a.level === 'FATAL' || a.level === 'ERROR' || a.level === 'WARN')) {
+                        toastQueue.push(a);
+                    }
+                });
+                if (toastQueue.length > 0 && !toastRunning) showNextToast();
+            }
+            prevAlertKeys = newKeys;
+            allAlerts = newAlerts;
+        } catch (e) { allAlerts = []; }
+
+        const counts = { ALL: allAlerts.length, FATAL: 0, ERROR: 0, WARN: 0, INFO: 0 };
+        allAlerts.forEach(a => { if (counts[a.level] !== undefined) counts[a.level]++; });
+        Object.keys(counts).forEach(k => {
+            const el = document.getElementById('alertCount' + k);
+            if (el) el.textContent = counts[k];
+        });
+        // 현재 선택된 필터 유지
+        const activeBtn = document.querySelector('.alert-filter-btn.active');
+        filterAlerts(currentAlertFilter, activeBtn);
+    }
+
+    function showNextToast() {
+        const el = document.getElementById('alertToast');
+        if (!el || toastQueue.length === 0) { toastRunning = false; return; }
+        toastRunning = true;
+        const a = toastQueue.shift();
+        const name = a.objName ? a.objName.split('/').pop() : '';
+        const msg = name ? '[' + name + '] ' + a.message : a.message;
+        const truncated = msg.length > 40 ? msg.substring(0, 40) + '...' : msg;
+        el.innerHTML = '<span class="toast-badge ' + a.level + '">' + a.level + '</span>' + escHtml(truncated);
+        el.style.opacity = '1';
+        setTimeout(function() {
+            el.style.opacity = '0';
+            setTimeout(function() {
+                el.innerHTML = '';
+                showNextToast();
+            }, 400);
+        }, 1000);
+    }
+
+    function filterAlerts(level, btn) {
+        currentAlertFilter = level;
+        document.querySelectorAll('.alert-filter-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        const filtered = level === 'ALL' ? allAlerts : allAlerts.filter(a => a.level === level);
+        const listEl = document.getElementById('alertList');
+        if (!listEl) return;
+        if (filtered.length === 0) {
+            listEl.innerHTML = '<div class="alert-item" style="color:#999;">알림 없음</div>';
+            return;
+        }
+        listEl.innerHTML = filtered.map(a => {
+            const t = a.time ? new Date(a.time) : null;
+            const timeStr = t ? pad(t.getMonth()+1) + '/' + pad(t.getDate()) + ' ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds()) : '';
+            const typeClass = a.objType === 'host' ? 'host' : 'java';
+            const typeLabel = a.objType === 'host' ? 'HOST' : 'JAVA';
+            return '<div class="alert-item">'
+                + '<span class="alert-badge ' + a.level + '">' + a.level + '</span>'
+                + '<span class="alert-obj-type ' + typeClass + '">' + typeLabel + '</span>'
+                + '<span class="alert-time">' + timeStr + '</span>'
+                + '<span class="alert-msg">' + (a.objName ? '[' + a.objName.split('/').pop() + '] ' : '') + escHtml(a.message) + '</span>'
+                + '</div>';
+        }).join('');
+    }
+
+    // ==================== 프로파일 모달 ====================
+    function openProfileModal(points) {
+        const overlay = document.getElementById('profileOverlay');
+        const titleEl = document.getElementById('profileTitle');
+        const headerInfo = document.getElementById('profileHeaderInfo');
+        const listEl = document.getElementById('profileList');
+        const infoEl = document.getElementById('profileInfo');
+        const bodyEl = document.getElementById('profileBody');
+
+        points.sort((a, b) => b.realY - a.realY);
+
+        titleEl.textContent = 'XLog Profile';
+        headerInfo.textContent = points.length + '건 선택';
+        infoEl.innerHTML = '';
+        bodyEl.innerHTML = '<div class="profile-empty">왼쪽 목록에서 트랜잭션을 선택하세요</div>';
+
+        listEl.innerHTML = points.map((p, i) => {
+            const speedClass = p.realY >= YAXIS_CAP ? 'warn' : p.realY >= 3000 ? 'slow' : 'fast';
+            return '<div class="profile-list-item" data-idx="' + i + '" onclick="selectProfileItem(this,' + i + ')">'
+                + '<div class="item-service">' + escHtml(p.service) + '</div>'
+                + '<div class="item-meta">'
+                + '<span class="item-elapsed ' + speedClass + '">' + p.realY + 'ms</span>'
+                + '<span>' + formatTimeMs(p.x) + '</span>'
+                + '<span>SQL:' + p.sqlCount + '</span>'
+                + (p.objName ? '<span style="color:#888;">[' + escHtml(p.objName) + ']</span>' : '')
+                + '<span style="color:#bbb;">txid:' + p.txid + '</span>'
+                + '</div></div>';
+        }).join('');
+
+        overlay._points = points;
+        overlay.classList.add('show');
+
+        if (points.length === 1) {
+            const firstItem = listEl.querySelector('.profile-list-item');
+            selectProfileItem(firstItem, 0);
+        }
+    }
+
+    async function selectProfileItem(el, idx) {
+        document.querySelectorAll('.profile-list-item').forEach(e => e.classList.remove('active'));
+        el.classList.add('active');
+
+        const overlay = document.getElementById('profileOverlay');
+        const point = overlay._points[idx];
+        const infoEl = document.getElementById('profileInfo');
+        const bodyEl = document.getElementById('profileBody');
+
+        infoEl.innerHTML = (point.objName ? '<span><span class="label">인스턴스:</span> ' + escHtml(point.objName) + '</span>' : '')
+            + '<span><span class="label">서비스:</span> ' + escHtml(point.service) + '</span>'
+            + '<span><span class="label">응답시간:</span> ' + point.realY + 'ms</span>'
+            + '<span><span class="label">시작:</span> ' + formatTimeMs(point.x - point.realY) + '</span>'
+            + '<span><span class="label">종료:</span> ' + formatTimeMs(point.x) + '</span>'
+            + '<span><span class="label">SQL:</span> ' + point.sqlCount + '건 / ' + point.sqlTime + 'ms</span>'
+            + '<span><span class="label">API Call:</span> ' + point.apicallCount + '건 / ' + point.apicallTime + 'ms</span>'
+            + (point.cpu ? '<span><span class="label">CPU:</span> ' + point.cpu + 'ms</span>' : '')
+            + (point.ipaddr ? '<span><span class="label">IP:</span> ' + escHtml(point.ipaddr) + '</span>' : '')
+            + '<span><span class="label">txid:</span> ' + point.txid + '</span>'
+            + (point.status ? '<span><span class="label">HTTP:</span> <span style="color:' + (point.status >= 400 ? '#e74c3c' : point.status >= 300 ? '#e67e22' : '#27ae60') + ';font-weight:bold;">' + point.status + '</span></span>' : '')
+            + (point.error ? '<span style="color:#e74c3c;font-weight:bold;"><span class="label">에러:</span> ' + escHtml(point.errorMessage || 'error') + '</span>' : '');
+        bodyEl.innerHTML = '<div class="profile-step"><span style="color:#999;">프로파일 로딩 중...</span></div>';
+
+        try {
+            const dateStr = document.getElementById('dateInput').value.replace(/-/g, '');
+            const serverId = await getServerId();
+            const data = await apiFetch('/scouter/v1/profile-data/' + dateStr + '/' + point.txid + '?serverId=' + serverId);
+            const steps = data.result || [];
+
+            if (steps.length === 0) {
+                bodyEl.innerHTML = '<div class="profile-step"><span style="color:#999;">프로파일 데이터 없음</span></div>';
+                return;
+            }
+
+            buildRatioBar(steps, point.realY);
+            document.getElementById('profileFilter').style.display = 'flex';
+
+            // ── Scouter 프로파일 순서 변환 ──
+            // Scouter는 메서드 종료(return) 시점에 스텝을 기록한다.
+            // 따라서 API 응답은 후위 순회(post-order) 순서로 온다:
+            //   자식 스텝들이 먼저 나오고, 부모 스텝이 뒤에 나옴.
+            //   예) SQL(13ms) → SQL(260ms) → ServiceImpl.search(8ms, 1046ms)
+            // 이를 전위 순회(pre-order)로 변환하여 진입 순서대로 표시한다:
+            //   부모 스텝이 먼저 나오고, 자식 스텝이 아래에 들여쓰기됨.
+            //   예) ServiceImpl.search(8ms, 1046ms) → SQL(13ms) → SQL(260ms)
+            // 각 스텝의 start_time(진입 시각)과 elapsed(소요 시간)는 순서와 무관한 고정값.
+            const childrenMap = {};
+            const depthMap = {};
+            steps.forEach(s => {
+                const step = s.step || s;
+                const parent = String(step.parent);
+                if (!childrenMap[parent]) childrenMap[parent] = [];
+                childrenMap[parent].push(s);
+            });
+            Object.values(childrenMap).forEach(arr => {
+                arr.sort((a, b) => Number((a.step || a).start_time) - Number((b.step || b).start_time));
+            });
+            const orderedSteps = [];
+            function preOrder(item, depth) {
+                depthMap[String((item.step || item).index)] = depth;
+                orderedSteps.push(item);
+                (childrenMap[String((item.step || item).index)] || []).forEach(function(c) { preOrder(c, depth + 1); });
+            }
+            (childrenMap['-1'] || []).forEach(function(r) { preOrder(r, 0); });
+
+            // self-time 계산 (elapsed - 직계 자식 elapsed 합)
+            // elapsed 우선, 없으면 time 폴백 (단, time:-1 같은 sentinel 제외)
+            function stepElapsed(step) {
+                const el = Number(step.elapsed);
+                if (el > 0) return el;
+                const t = Number(step.time);
+                return t > 0 ? t : 0;
+            }
+            const selfTimeMap = {};
+            orderedSteps.forEach(s => {
+                const step = s.step || s;
+                const idx = String(step.index);
+                const el = stepElapsed(step);
+                const children = childrenMap[idx] || [];
+                const childSum = children.reduce((sum, c) => sum + stepElapsed(c.step || c), 0);
+                selfTimeMap[idx] = Math.max(0, el - childSum);
+            });
+            // 병목 하이라이트: self-time 최대 스텝 찾기
+            let maxSelfTime = 0;
+            orderedSteps.forEach(s => {
+                const idx = String((s.step || s).index);
+                if (selfTimeMap[idx] > maxSelfTime) maxSelfTime = selfTimeMap[idx];
+            });
+
+            // [2026-03-12] hook_jdbc_pstmt_classes 주석처리로 unknown SQL 더 이상 발생하지 않음
+            // unknown SQL 필터링 및 프로파일 보정 로직 비활성화
+            const filtered = orderedSteps;
+            /*
+            const filtered = orderedSteps.filter(s => {
+                const sType = (s.step || s).stepTypeName || '';
+                if ((sType === 'SQL3' || sType === 'SQL' || sType === 'SQL2') && (s.mainValue === 'unknown' || !s.mainValue)) return false;
+                return true;
+            });
+
+            // 프로파일 기반 SQL 보정: unknown 제외한 실제 SQL 건수/시간
+            const sqlTypes = ['SQL3', 'SQL', 'SQL2'];
+            const realSqls = filtered.filter(s => sqlTypes.includes((s.step || s).stepTypeName || ''));
+            const realSqlCount = realSqls.length;
+            const realSqlTime = realSqls.reduce((sum, s) => {
+                const step = s.step || s;
+                const el = Number(step.elapsed);
+                return sum + (el > 0 ? el : Math.max(0, Number(step.time) || 0));
+            }, 0);
+            if (point.sqlCount !== realSqlCount || point.sqlTime !== realSqlTime) {
+                point.sqlCount = realSqlCount;
+                point.sqlTime = realSqlTime;
+                const sqlSpans = infoEl.querySelectorAll('span');
+                sqlSpans.forEach(sp => {
+                    if (sp.textContent.includes('건 /') && sp.previousElementSibling && sp.previousElementSibling.textContent === 'SQL:') {
+                        sp.parentElement.innerHTML = '<span class="label">SQL:</span> ' + realSqlCount + '건 / ' + realSqlTime + 'ms';
+                    }
+                });
+                const listItem = document.querySelectorAll('.profile-list-item')[idx];
+                if (listItem) {
+                    const sqlSpan = listItem.querySelector('.item-meta span:nth-child(3)');
+                    if (sqlSpan) sqlSpan.textContent = 'SQL:' + realSqlCount;
+                }
+            }
+            */
+
+            bodyEl.innerHTML = filtered.map(s => {
+                const step = s.step || s;
+                const typeName = step.stepTypeName || 'UNKNOWN';
+                const timeMs = Number(step.start_time) || 0;
+                const elapsed = (step.elapsed != null && Number(step.elapsed) >= 0) ? Number(step.elapsed)
+                    : (Number(step.time) >= 0 ? Number(step.time) : '');
+                const cpuTime = (step.cputime != null && Number(step.cputime) >= 0) ? Number(step.cputime) : '';
+                const mainVal = s.mainValue || '';
+                const depth = depthMap[String(step.index)] || 0;
+                const selfTime = selfTimeMap[String(step.index)] || 0;
+                const isBottleneck = maxSelfTime > 0 && selfTime === maxSelfTime;
+
+                let layerHtml = '<span class="step-layer"></span>';
+                let displayVal = mainVal;
+                let filterClass = '';
+                if (typeName === 'METHOD') {
+                    const cls = classifyMethod(mainVal);
+                    layerHtml = '<span class="step-layer"><span class="layer-badge ' + cls.layer + '">' + cls.layer + '</span></span>';
+                    displayVal = cls.shortName;
+                    filterClass = cls.filterClass;
+                }
+
+                let paramHtml = '';
+                if ((typeName === 'SQL3' || typeName === 'SQL' || typeName === 'SQL2') && step.param) {
+                    paramHtml = '<div class="profile-step" style="border-bottom:none;padding-top:0;">'
+                        + '<span class="step-time"></span>'
+                        + '<span class="step-type"></span>'
+                        + '<span class="step-layer"></span>'
+                        + buildIndentGuides(depth)
+                        + '<span class="step-value" style="color:#e67e22;font-size:11px;">bind: [' + escHtml(step.param) + ']</span>'
+                        + '<span class="step-elapsed"></span></div>';
+                }
+
+                // indent를 TYPE/LAYER 뒤, value 앞에 배치 (TYPE 라벨 위치 고정)
+                // 병목(self-time 최대) 스텝에 bottleneck 클래스 추가
+                const cssClasses = 'profile-step'
+                    + (filterClass ? ' ' + filterClass : '')
+                    + (isBottleneck ? ' bottleneck' : '');
+                return '<div class="' + cssClasses + '" data-filter="' + filterClass + '">'
+                    + '<span class="step-time">' + (timeMs >= 0 ? timeMs + 'ms' : '') + '</span>'
+                    + '<span class="step-type ' + typeName + '">' + typeName + '</span>'
+                    + layerHtml
+                    + buildIndentGuides(depth)
+                    + '<span class="step-value">' + escHtml(displayVal) + '</span>'
+                    + (elapsed !== '' ? '<span class="step-elapsed">' + elapsed + 'ms</span>' : '<span class="step-elapsed"></span>')
+                    + (selfTime > 0 ? '<span class="step-self">' + selfTime + 'ms</span>' : '<span class="step-self"></span>')
+                    + (function() {
+                        if (typeName !== 'METHOD' || elapsed === '' || elapsed <= 0 || cpuTime === '') return '<span class="step-cpu"></span>';
+                        var isWait = cpuTime / elapsed < 0.3;
+                        return '<span class="step-cpu' + (isWait ? ' wait' : '') + '">cpu ' + cpuTime + 'ms' + (isWait ? ' \u23f3' : '') + '</span>';
+                    })()
+                    + '</div>' + paramHtml;
+            }).join('');
+
+            applyProfileFilter();
+        } catch (e) {
+            bodyEl.innerHTML = '<div class="profile-step"><span style="color:#e74c3c;">프로파일 로딩 실패: ' + e.message + '</span></div>';
+        }
+    }
+
+    function closeProfile() {
+        document.getElementById('profileOverlay').classList.remove('show');
+    }
+
+    // ==================== Ratio Bar ====================
+    const RATIO_COLORS = { SQL3: '#2980b9', SQL: '#2980b9', SQL2: '#2980b9', METHOD: '#27ae60', APICALL: '#e67e22', HASHED_MESSAGE: '#8e44ad' };
+    const RATIO_LABELS = { SQL3: 'SQL', SQL: 'SQL', SQL2: 'SQL', METHOD: 'METHOD', APICALL: 'API CALL', HASHED_MESSAGE: 'MESSAGE' };
+
+    function buildRatioBar(steps, totalElapsed) {
+        const section = document.getElementById('ratioSection');
+        if (!section) return;
+
+        // ── Scouter 프로파일 ratio bar 집계 규칙 (v2: Java 레이어 세분화) ──
+        // 1) I/O 타입(SQL, APICALL): 전체 elapsed 합산 (기존과 동일)
+        // 2) METHOD 타입: self-time(= elapsed - 직계 자식 elapsed 합) 계산 후 레이어별 분류
+        //    → 이중 계산 없이 CTRL/SVC/LOG/JDBC/ETC 등으로 분배
+        // 3) unknown SQL 제외 (기존과 동일)
+        // 4) 잔여 시간(total - 분류된 합)은 '기타'로 표시
+
+        // parent-child map → self-time 계산
+        const childrenMap = {};
+        steps.forEach(s => {
+            const step = s.step || s;
+            const parent = String(step.parent);
+            if (!childrenMap[parent]) childrenMap[parent] = [];
+            childrenMap[parent].push(s);
+        });
+        // elapsed 필드만 사용 (time 필드는 HASHED_MESSAGE에서 -1을 반환하여 계산 오염)
+        function getElapsed(step) {
+            const v = Number(step.elapsed);
+            return v > 0 ? v : 0;
+        }
+
+        const selfTimeMap = {};
+        steps.forEach(s => {
+            const step = s.step || s;
+            const idx = String(step.index);
+            const el = getElapsed(step);
+            const children = childrenMap[idx] || [];
+            const childSum = children.reduce((sum, c) => sum + getElapsed(c.step || c), 0);
+            selfTimeMap[idx] = Math.max(0, el - childSum);
+        });
+
+        const IO_TYPES = { SQL3: 'SQL', SQL: 'SQL', SQL2: 'SQL', APICALL: 'API CALL' };
+        const typeTime = {};
+        steps.forEach(s => {
+            const step = s.step || s;
+            const typeName = step.stepTypeName || '';
+            const mv = s.mainValue || '';
+            if (mv === 'unknown') return;
+            const idx = String(step.index);
+
+            // I/O 타입: 전체 elapsed
+            const ioLabel = IO_TYPES[typeName];
+            if (ioLabel) {
+                const elapsed = getElapsed(step);
+                if (elapsed > 0) typeTime[ioLabel] = (typeTime[ioLabel] || 0) + elapsed;
+                return;
+            }
+            // METHOD 타입: self-time을 레이어별 분류
+            if (typeName === 'METHOD') {
+                const cls = classifyMethod(mv);
+                const selfTime = selfTimeMap[idx] || 0;
+                if (selfTime > 0) typeTime[cls.layer] = (typeTime[cls.layer] || 0) + selfTime;
+            }
+        });
+
+        const measured = Object.values(typeTime).reduce((a, b) => a + b, 0);
+        if (measured <= 0) { section.style.display = 'none'; return; }
+        // 분류된 합계를 기준으로 비율 계산 (프레임워크 오버헤드는 제외)
+        const total = measured;
+
+        const entries = Object.entries(typeTime).sort((a, b) => b[1] - a[1]);
+        const colorMap = {
+            SQL: '#2980b9', 'API CALL': '#e67e22',
+            CTRL: '#3498db', SVC: '#27ae60', SEC: '#d35400',
+            LOG: '#95a5a6', DTO: '#9b59b6', JDBC: '#34495e',
+            EXC: '#e74c3c', ETC: '#bdc3c7',
+        };
+
+        let barHtml = '<div class="ratio-bar">';
+        entries.forEach(([label, ms]) => {
+            const pct = (ms / total * 100);
+            if (pct < 1) return;
+            const color = colorMap[label] || '#95a5a6';
+            barHtml += '<div class="ratio-bar-seg" style="width:' + pct.toFixed(1) + '%;background:' + color + ';">'
+                + (pct >= 8 ? label + ' ' + Math.round(pct) + '%' : (pct >= 4 ? Math.round(pct) + '%' : '')) + '</div>';
+        });
+        barHtml += '</div>';
+
+        let legendHtml = '<div class="ratio-legend">';
+        entries.forEach(([label, ms]) => {
+            const pct = (ms / total * 100);
+            const color = colorMap[label] || '#95a5a6';
+            legendHtml += '<div class="ratio-legend-item"><div class="ratio-legend-dot" style="background:' + color + '"></div>'
+                + label + ' ' + ms + 'ms (' + Math.round(pct) + '%)</div>';
+        });
+        legendHtml += '</div>';
+
+        section.innerHTML = barHtml + legendHtml;
+        section.style.display = 'block';
+    }
+
+    // ==================== METHOD 분류 ====================
+    function classifyMethod(mainVal) {
+        let shortName = mainVal;
+        let layer = 'ETC';
+        let filterClass = '';
+
+        if (/^(OPEN-DBC|COMMIT|CLOSE|setAutoCommit|getConnection)/.test(mainVal)) {
+            return { layer: 'JDBC', shortName: mainVal.split(' ')[0], filterClass };
+        }
+
+        const match = mainVal.match(/^([\w.$]+)\.([\w$]+)\(.*$/);
+        if (!match) return { layer, shortName, filterClass };
+
+        const fqcn = match[1];
+        const method = match[2];
+        const parts = fqcn.split('.');
+        const className = parts[parts.length - 1];
+        shortName = className + '.' + method + '()';
+
+        if (className.includes('$Builder') || className.includes('Builder') || method === 'builder') {
+            filterClass = 'filter-builder';
+            const parentClass = className.replace(/\$.*Builder.*$/, '');
+            return { layer: 'DTO', shortName: parentClass + '.' + method + '()', filterClass };
+        }
+
+        if (fqcn.includes('.controller.')) layer = 'CTRL';
+        else if (fqcn.includes('.service.')) layer = 'SVC';
+        else if (fqcn.includes('.security.') || fqcn.includes('.SecurityUtil')) layer = 'SEC';
+        else if (fqcn.includes('.log.') || fqcn.includes('.logging.') || fqcn.includes('LoggingAspect') || fqcn.includes('CallDepthHolder')) { layer = 'LOG'; filterClass = 'filter-log'; }
+        else if (fqcn.includes('.dto.') || fqcn.includes('DTO') || fqcn.includes('.entity.') || fqcn.includes('.model.') || fqcn.includes('.vo.')) { layer = 'DTO'; filterClass = 'filter-dto'; }
+        else if (fqcn.includes('.exception.')) layer = 'EXC';
+        else if (fqcn.includes('.mapper.')) layer = 'SVC';
+        else if (fqcn.includes('$$SpringCGLIB$$')) {
+            const origFqcn = fqcn.replace(/\$\$SpringCGLIB\$\$\d*/, '');
+            const reCls = classifyMethod(origFqcn + '.' + method + '()');
+            reCls.shortName = className.replace(/\$\$SpringCGLIB\$\$\d*/, '') + '.' + method + '() [proxy]';
+            return reCls;
+        }
+
+        return { layer, shortName, filterClass };
+    }
+
+    function buildIndentGuides(depth) {
+        if (depth <= 0) return '';
+        let html = '<span class="indent-guides">';
+        for (let i = 0; i < depth; i++) {
+            html += '<span class="indent-guide"></span>';
+        }
+        html += '</span>';
+        return html;
+    }
+
+    function applyProfileFilter() {
+        const hideBuilder = document.getElementById('chkHideBuilder').checked;
+        const hideLog = document.getElementById('chkHideLog').checked;
+        const hideDto = document.getElementById('chkHideDto').checked;
+
+        const steps = document.querySelectorAll('#profileBody .profile-step');
+        let total = 0, hidden = 0;
+        steps.forEach(el => {
+            total++;
+            const f = el.dataset.filter || '';
+            const hide = (hideBuilder && f === 'filter-builder')
+                || (hideLog && f === 'filter-log')
+                || (hideDto && f === 'filter-dto');
+            el.classList.toggle('filtered', hide);
+            if (hide) hidden++;
+        });
+
+        const countEl = document.getElementById('profileFilterCount');
+        if (countEl) countEl.textContent = hidden > 0 ? (total - hidden) + '/' + total + '건 표시 (' + hidden + '건 숨김)' : total + '건';
+    }
+
+    // ==================== 유틸 ====================
+    function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function formatTimeMs(ms) {
+        const d = new Date(ms);
+        return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+    }
+    function setStatus(msg, isError) {
+        const el = document.getElementById('statusMsg');
+        el.textContent = msg;
+        el.style.color = isError ? '#e74c3c' : '#27ae60';
+    }
+</script>
+</body>
+</html>

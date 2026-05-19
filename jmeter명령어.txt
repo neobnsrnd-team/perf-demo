@@ -1,0 +1,9 @@
+c:\jMeter\apache-jmeter-5.6.3\bin\jmeter.bat -n -t c:\java\perf-demo\jmeter\perf-demo-test-plan.jmx -l c:\java\perf-demo\jmeter\results\result.jtl -e -o c:\java\perf-demo\jmeter\results -JHOST=localhost -JPORT=18081
+
+c:\jMeter\apache-jmeter-5.6.3\bin\jmeter.bat -n -t c:\java\perf-demo\jmeter\perf-demo-test-plan.jmx -l c:\java\perf-demo\jmeter\results\baseline-before.jtl -e -o c:\java\perf-demo\jmeter\results\baseline-before-report -JTG1=false -JTG2=true -JHOST=localhost -JPORT=18081
+
+cmd
+c:\jMeter\apache-jmeter-5.6.3\bin\jmeter.bat -n -t c:\java\perf-demo\jmeter\perf-demo-test-plan.jmx -l c:\java\perf-demo\jmeter\results\TG2\result.jtl -e -o c:\java\perf-demo\jmeter\results\TG2\report -JHOST=localhost -JPORT=18081
+
+//파워쉘은 &
+& "C:\Program Files\Eclipse Adoptium\jdk-17.0.18.8-hotspot\bin\java" -XX:StartFlightRecording=filename="C:/java/perf-demo/profiling.jfr",dumponexit=true,settings=profile -jar "C:\java\perf-demo\target\perf-demo-1.0.0.jar"

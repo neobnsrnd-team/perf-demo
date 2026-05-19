@@ -1,0 +1,32 @@
+server:
+  port: 18081
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:perfdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+mybatis:
+  mapper-locations: classpath:mapper/order/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    com.example.perfdemo: INFO  # DEBUG: S4 병목 재현 / INFO: logback-spring.xml 프로필 위임

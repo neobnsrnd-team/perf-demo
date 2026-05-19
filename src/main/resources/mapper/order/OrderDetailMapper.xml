@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.perfdemo.domain.order.mapper.OrderDetailMapper">
+
+    <!-- Scenario 3: N+1 병목 - 건별 상세 조회 -->
+    <select id="findByOrderId" resultType="com.example.perfdemo.domain.order.dto.response.OrderDetailResponseDTO">
+        SELECT d.DETAIL_ID,
+               d.ORDER_ID,
+               d.PRODUCT_ID,
+               d.PRODUCT_NAME,
+               d.QUANTITY,
+               d.UNIT_PRICE,
+               d.LINE_AMOUNT
+          FROM PERF_ORDER_DETAIL d
+         WHERE d.ORDER_ID = #{orderId}
+    </select>
+
+</mapper>

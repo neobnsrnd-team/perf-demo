@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- ============================================================ -->
+    <!-- Console Appender (공통) -->
+    <!-- ============================================================ -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ============================================================ -->
+    <!-- File Appender - 동기 (Before: Scenario 4 병목 원인) -->
+    <!-- ============================================================ -->
+    <appender name="FILE_SYNC" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/perf-demo.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>logs/perf-demo.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ============================================================ -->
+    <!-- Async Appender (After: Scenario 4 최적화) -->
+    <!-- ============================================================ -->
+    <appender name="FILE_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>1024</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>true</neverBlock>
+        <appender-ref ref="FILE_SYNC"/>
+    </appender>
+
+    <!-- ============================================================ -->
+    <!-- Profile: default (Before - 동기 로깅, INFO) -->
+    <!-- Scenario 4 병목: 동기 File I/O + INFO 레벨 -->
+    <!-- ============================================================ -->
+    <springProfile name="default | sync">
+        <logger name="com.example.perfdemo" level="INFO"/>
+
+        <root level="WARN">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE_SYNC"/>
+        </root>
+    </springProfile>
+
+    <!-- ============================================================ -->
+    <!-- Profile: async (After - 비동기 로깅, DEBUG) -->
+    <!-- Scenario 4 최적화: AsyncAppender + DEBUG 레벨 (운영은 INFO) -->
+    <!-- 사용법: -Dspring.profiles.active=oracle,async -->
+    <!-- ============================================================ -->
+    <springProfile name="async">
+        <logger name="com.example.perfdemo" level="DEBUG"/>
+
+        <root level="WARN">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE_ASYNC"/>
+        </root>
+    </springProfile>
+
+</configuration>

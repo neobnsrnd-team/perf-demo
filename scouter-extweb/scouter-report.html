@@ -1,0 +1,3445 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Scouter Daily Report</title>
+    <script src="chart.js"></script>
+    <script src="chartjs-plugin-annotation.js"></script>
+    <script src="xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Malgun Gothic', sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 10px; color: #333; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 20px; font-size: 14px; }
+
+        .config-bar {
+            background: #fff; border-radius: 8px; padding: 15px 20px;
+            margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+        }
+        .config-bar label { font-size: 13px; font-weight: bold; color: #555; }
+        .config-bar input, .config-bar select {
+            padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;
+        }
+        .config-bar button {
+            padding: 8px 20px; background: #4a90d9; color: #fff; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .config-bar button:hover { background: #357abd; }
+        .config-bar button:disabled { background: #ccc; cursor: not-allowed; }
+        #statusMsg { font-size: 12px; color: #e74c3c; margin-left: 10px; }
+        /* 프로그레스 바 */
+        .progress-wrap { display: none; margin-bottom: 16px; }
+        .progress-wrap.show { display: block; }
+        .progress-bar-bg { height: 6px; background: #e9ecef; border-radius: 3px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #4a90d9, #27ae60); border-radius: 3px; transition: width 0.3s ease; }
+        .progress-label { font-size: 12px; color: #666; margin-top: 4px; display: flex; justify-content: space-between; }
+        /* .auto-refresh { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+        .auto-refresh label { font-weight: normal; } */
+
+        .summary-cards {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px; margin-bottom: 20px;
+        }
+        .card {
+            background: #fff; border-radius: 8px; padding: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; position: relative;
+        }
+        .card .label { font-size: 12px; color: #888; margin-bottom: 5px; }
+        .card .value { font-size: 24px; font-weight: bold; color: #333; }
+        .card .unit { font-size: 12px; color: #aaa; }
+
+        .section-title {
+            font-size: 16px; font-weight: bold; color: #333;
+            margin: 25px 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #4a90d9;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .section-badge {
+            font-size: 11px; padding: 2px 8px; border-radius: 10px;
+            color: #fff; font-weight: normal;
+        }
+        .section-badge.host { background: #27ae60; }
+        .section-badge.java { background: #e67e22; }
+
+        .chart-row {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 15px; margin-bottom: 15px;
+        }
+        .chart-box {
+            background: #fff; border-radius: 8px; padding: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .chart-box h3 {
+            font-size: 14px; color: #555; margin-bottom: 3px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .chart-stats { font-size: 11px; color: #999; margin-bottom: 8px; }
+        .chart-box.full-width { grid-column: 1 / -1; }
+
+        /* 도움말 아이콘 */
+        .help-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 16px; height: 16px; border-radius: 50%;
+            border: 1.5px solid #aaa; color: #aaa; font-size: 11px;
+            font-weight: bold; cursor: help; position: relative;
+            font-family: serif; font-style: italic; flex-shrink: 0;
+        }
+        .help-icon:hover { border-color: #4a90d9; color: #4a90d9; }
+        .help-icon .tooltip {
+            display: none; position: absolute; bottom: 22px; left: 0;
+            background: #333; color: #fff;
+            padding: 8px 12px; border-radius: 4px; font-size: 12px;
+            white-space: pre-line; max-width: 620px; min-width: 320px; width: max-content;
+            z-index: 100; font-style: normal;
+            font-family: 'Malgun Gothic', sans-serif; font-weight: normal;
+        }
+        .help-icon .tooltip::after {
+            content: ''; position: absolute; top: 100%; left: 20px;
+            border: 5px solid transparent;
+            border-top-color: #333;
+        }
+        .help-icon:hover .tooltip { display: block; }
+
+        /* XLog */
+        .xlog-section { margin-bottom: 15px; }
+        .xlog-section .chart-box { min-height: 300px; }
+        .xlog-legend { display: flex; gap: 15px; margin-top: 8px; font-size: 11px; color: #666; }
+        .xlog-legend-item { display: flex; align-items: center; gap: 4px; }
+        .xlog-legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+        /* 느린 API Top 5 / 서비스별 통계 / 에러 분석 */
+        .slow-api-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .slow-api-table td.right { text-align: right; }
+        .tag-n1 {
+            display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px;
+            font-weight: bold; background: #f39c12; color: #fff; margin-left: 4px;
+        }
+        .tag-sql-bottleneck {
+            display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px;
+            font-weight: bold; background: #3498db; color: #fff; margin-left: 4px;
+        }
+        .slow-api-table th {
+            background: #f8f9fa; padding: 8px 12px; text-align: center;
+            border-bottom: 2px solid #dee2e6; font-weight: bold; color: #555;
+        }
+        .slow-api-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+        .slow-api-table tr:hover { background: #f8f9fa; }
+
+        /* 알림 이력 */
+        .alert-section { margin-bottom: 15px; }
+        .alert-filters { display: flex; gap: 8px; margin-bottom: 10px; }
+        .alert-filter-btn {
+            padding: 4px 12px; border: 1px solid #ddd; border-radius: 12px;
+            background: #fff; cursor: pointer; font-size: 12px;
+        }
+        .alert-filter-btn.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+        .alert-filter-btn .count { font-weight: bold; margin-left: 4px; }
+        .alert-list { max-height: 300px; overflow-y: auto; }
+        .alert-item {
+            padding: 8px 12px; border-bottom: 1px solid #eee;
+            display: flex; align-items: center; gap: 10px; font-size: 13px;
+        }
+        .alert-badge {
+            padding: 2px 8px; border-radius: 4px; font-size: 11px;
+            font-weight: bold; color: #fff; min-width: 50px; text-align: center;
+        }
+        .alert-badge.FATAL { background: #8b0000; }
+        .alert-badge.ERROR { background: #e74c3c; }
+        .alert-badge.WARN { background: #f39c12; }
+        .alert-badge.INFO { background: #3498db; }
+        .alert-time { color: #888; font-size: 12px; min-width: 60px; }
+        .alert-msg { flex: 1; }
+
+        /* 프로파일 모달 (Paper 스타일) */
+        .profile-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;
+        }
+        .profile-overlay.show { display: flex; }
+        .profile-modal {
+            background: #fff; border-radius: 8px; width: 95%; max-width: 1200px; height: 80vh;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3); display: flex; flex-direction: column;
+        }
+        .profile-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 20px; border-bottom: 1px solid #eee; flex-shrink: 0;
+        }
+        .profile-header h3 { font-size: 14px; color: #333; margin: 0; }
+        .profile-header .header-info { font-size: 12px; color: #888; }
+        .profile-close { border: none; background: none; font-size: 20px; cursor: pointer; color: #999; }
+        .profile-close:hover { color: #333; }
+        .profile-split { display: flex; flex: 1; overflow: hidden; }
+        /* 왼쪽 리스트 */
+        .profile-list {
+            width: 340px; min-width: 340px; border-right: 1px solid #eee;
+            overflow-y: auto; background: #fafafa;
+        }
+        .profile-list-item {
+            padding: 10px 14px; border-bottom: 1px solid #eee; cursor: pointer;
+            font-size: 12px; display: flex; flex-direction: column; gap: 3px;
+        }
+        .profile-list-item:hover { background: #f0f4ff; }
+        .profile-list-item.active { background: #e8f0fe; border-left: 3px solid #4a90d9; }
+        .profile-list-item .item-service { font-weight: bold; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .profile-list-item .item-meta { display: flex; gap: 12px; color: #888; font-size: 11px; }
+        .profile-list-item .item-elapsed { font-weight: bold; }
+        .profile-list-item .item-elapsed.slow { color: #e74c3c; }
+        .profile-list-item .item-elapsed.warn { color: #f39c12; }
+        .profile-list-item .item-elapsed.fast { color: #27ae60; }
+        /* 오른쪽 상세 */
+        .profile-detail { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+        .profile-info { padding: 10px 20px; background: #f8f9fa; font-size: 12px; color: #555; display: flex; gap: 20px; flex-wrap: wrap; flex-shrink: 0; }
+        .profile-info span { display: flex; align-items: center; gap: 4px; }
+        .profile-info .label { font-weight: bold; color: #333; }
+        .profile-body { padding: 0; flex: 1; overflow-y: auto; }
+        .profile-step {
+            padding: 6px 20px 6px 8px; font-size: 12px; font-family: 'Consolas', 'Courier New', monospace;
+            border-bottom: 1px solid #f0f0f0; display: flex; gap: 10px;
+        }
+        .profile-step:hover { background: #f8f9fa; }
+        .profile-step .step-time { min-width: 70px; color: #888; text-align: right; }
+        .profile-step .step-type { width: 110px; flex-shrink: 0; font-weight: bold; }
+        .profile-step .step-type.SQL { color: #2980b9; }
+        .profile-step .step-type.METHOD { color: #27ae60; }
+        .profile-step .step-type.APICALL { color: #e67e22; }
+        .profile-step .step-type.HASHED_MESSAGE { color: #8e44ad; }
+        .profile-step .step-value { flex: 1; word-break: break-all; }
+        /* 인덴트 가이드라인 */
+        .indent-guides { display: flex; flex-shrink: 0; }
+        .indent-guide { width: 20px; border-right: 1px dashed #d0d0d0; flex-shrink: 0; margin: -6px 0; padding: 6px 0; }
+        .profile-step:hover .indent-guide { border-right-color: #aaa; }
+        /* 레이어 배지 */
+        .layer-badge {
+            font-size: 9px; padding: 1px 5px; border-radius: 3px;
+            color: #fff; font-weight: bold; font-family: 'Malgun Gothic', sans-serif;
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .layer-badge.CTRL { background: #3498db; }
+        .layer-badge.SVC  { background: #27ae60; }
+        .layer-badge.SEC  { background: #e67e22; }
+        .layer-badge.LOG  { background: #95a5a6; }
+        .layer-badge.DTO  { background: #9b59b6; }
+        .layer-badge.JDBC { background: #34495e; }
+        .layer-badge.EXC  { background: #e74c3c; }
+        .layer-badge.ETC  { background: #bdc3c7; color: #555; }
+        .step-layer { width: 40px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+        .profile-filter { padding: 6px 20px; border-bottom: 1px solid #eee; font-size: 12px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; background: #fafafa; }
+        .profile-filter label { cursor: pointer; user-select: none; }
+        .profile-step.filtered { display: none; }
+        .profile-step .step-elapsed { min-width: 60px; text-align: right; color: #e74c3c; }
+        .profile-step .step-self { min-width: 70px; text-align: right; color: #2980b9; font-size: 11px; }
+        .profile-step .step-cpu { min-width: 75px; text-align: right; color: #16a085; font-size: 11px; }
+        .profile-step .step-cpu.wait { color: #e67e22; }
+        .profile-step.bottleneck { background: #fff5f5; border-left: 3px solid #e74c3c; }
+        .profile-step.bottleneck .step-self::after { content: ' ★'; color: #e74c3c; font-size: 10px; }
+        .profile-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #999; font-size: 14px; }
+        /* Ratio Bar */
+        .ratio-section { padding: 10px 20px; border-bottom: 1px solid #eee; flex-shrink: 0; }
+        .ratio-bar { display: flex; height: 22px; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+        .ratio-bar-seg { display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: #fff; min-width: 0; white-space: nowrap; overflow: hidden; }
+        .ratio-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #555; }
+        .ratio-legend-item { display: flex; align-items: center; gap: 4px; }
+        .ratio-legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+        /* 드래그 선택 박스 */
+        .xlog-select-box {
+            position: absolute; border: 2px dashed #4a90d9; background: rgba(74,144,217,0.1);
+            pointer-events: none; z-index: 10;
+        }
+
+        @media print {
+            body { background: #fff; padding: 10px; }
+            .config-bar { display: none; }
+            .progress-wrap { display: none !important; }
+            .card, .chart-box { box-shadow: none; border: 1px solid #eee; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Scouter Performance Report</h1>
+    <p class="subtitle" id="reportDate"></p>
+
+    <div class="config-bar">
+        <label>Scouter API</label>
+        <input type="text" id="apiUrl" value="" style="width: 200px;">
+        <label>날짜</label>
+        <input type="date" id="reportDateInput">
+        <label>시작</label>
+        <input type="time" id="reportStartTime" value="00:00">
+        <label>종료</label>
+        <input type="time" id="reportEndTime" value="23:59">
+        <label>Object</label>
+        <select id="objSelect"><option value="">로딩 중...</option></select>
+        <button id="btnGenerate" onclick="generateReport()">리포트 생성</button>
+        <!-- <button id="btnExcel" onclick="exportExcel()" disabled style="background:#27ae60;">엑셀 내보내기</button> -->
+        <button onclick="exportExcelAll()" style="background:#e67e22;">엑셀 다운로드</button>
+        <button onclick="loadExcelAndRender()" style="background:#2980b9;">엑셀 기반 차트 생성</button>
+        <input type="file" id="excelFileInput" accept=".xlsx" style="display:none;" onchange="handleExcelFile(this)">
+        <a href="scouter-xlog.html" style="padding:8px 16px;background:#8e44ad;color:#fff;border-radius:4px;text-decoration:none;font-size:13px;">XLog 모니터</a>
+        <span id="statusMsg"></span>
+        <label>N+1 임계</label>
+        <input type="number" id="n1Threshold" value="30" min="1" style="width:50px;" title="SQL 호출 수가 이 값 이상이면 N+1 의심 태그 표시">
+        <!-- 자동 새로고침 비활성화 — 실시간 모니터링은 XLog 모니터(scouter-xlog.html)로 대체
+        <div class="auto-refresh">
+            <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()">
+            <label for="autoRefresh">자동 새로고침</label>
+            <select id="refreshInterval" onchange="toggleAutoRefresh()">
+                <option value="30000">30초</option>
+                <option value="60000" selected>1분</option>
+                <option value="300000">5분</option>
+            </select>
+        </div>
+        -->
+    </div>
+
+    <!-- 프로그레스 바 -->
+    <div class="progress-wrap" id="progressWrap">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+        <div class="progress-label"><span id="progressText"></span><span id="progressPct"></span></div>
+    </div>
+
+    <!-- 동적으로 생성되는 리포트 영역 -->
+    <div id="reportContent"></div>
+</div>
+
+<!-- 프로파일 모달 (Paper 스타일) -->
+<div class="profile-overlay" id="profileOverlay" onclick="if(event.target===this)closeProfile()">
+    <div class="profile-modal">
+        <div class="profile-header">
+            <h3 id="profileTitle">XLog Profile</h3>
+            <span class="header-info" id="profileHeaderInfo"></span>
+            <button class="profile-close" onclick="closeProfile()">&times;</button>
+        </div>
+        <div class="profile-split">
+            <div class="profile-list" id="profileList"></div>
+            <div class="profile-detail">
+                <div class="profile-info" id="profileInfo"></div>
+                <div class="ratio-section" id="ratioSection" style="display:none;"></div>
+                <div class="profile-filter" id="profileFilter" style="display:none;">
+                    <label><input type="checkbox" id="chkHideBuilder" checked onchange="applyProfileFilter()"> Builder 숨김</label>
+                    <label><input type="checkbox" id="chkHideLog" onchange="applyProfileFilter()"> Logging 숨김</label>
+                    <label><input type="checkbox" id="chkHideDto" onchange="applyProfileFilter()"> DTO getter/setter 숨김</label>
+                    <span id="profileFilterCount" style="color:#888; margin-left:auto;"></span>
+                </div>
+                <div class="profile-body" id="profileBody">
+                    <div class="profile-empty">왼쪽 목록에서 트랜잭션을 선택하세요</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==================== 초기화 ====================
+    const today = new Date();
+    document.getElementById('apiUrl').value = window.location.origin;
+    document.getElementById('reportDateInput').value = today.toISOString().slice(0, 10);
+    document.getElementById('reportDate').textContent = today.toISOString().slice(0, 10) + ' Performance Report';
+
+    let charts = {};
+    // let autoRefreshTimer = null; // 자동 새로고침 비활성화
+    let allAlerts = [];
+    let objectsCache = [];
+    let lastCounterResults = null;  // 엑셀 내보내기용
+    let lastCounters = null;        // 카운터 메타 정보
+    let lastIsHost = false;         // Host/Java 구분
+
+    window.addEventListener('load', loadObjects);
+
+    // ==================== 카운터 정의 ====================
+    // ==================== 그룹별 카운터 정의 ====================
+    const HOST_GROUPS = [
+        {
+            name: 'CPU / Memory', badge: 'host', help: 'CPU와 메모리 사용 현황. 지속적으로 높으면 서버 증설 검토',
+            counters: [
+                { key: 'Cpu',  label: 'CPU 사용률', unit: '%', color: '#e74c3c', aggregate: 'avg', threshold: {value:80, label:'임계치 80%', color:'#e74c3c'}, help: '서버 전체 CPU 사용률 (모든 코어 평균)' },
+                { key: 'Mem',  label: 'Memory 사용률', unit: '%', color: '#9b59b6', aggregate: 'avg', threshold: {value:90, label:'임계치 90%', color:'#e74c3c'}, help: '서버 물리 메모리 사용률 (%)' },
+            ]
+        },
+        {
+            name: 'Network', badge: 'host', help: '네트워크 송수신 트래픽. 급증 시 DDoS 또는 대량 데이터 전송 의심',
+            counters: [
+                { key: 'NetOutBound', label: 'Network Out', unit: 'cnt', color: '#3498db', aggregate: 'sum', help: '네트워크 송신 누적 카운트' },
+                { key: 'NetInBound',  label: 'Network In',  unit: 'cnt', color: '#1abc9c', aggregate: 'sum', help: '네트워크 수신 누적 카운트' },
+            ]
+        },
+        {
+            name: 'Swap / Paging', badge: 'host', help: '스왑 메모리와 페이징. Swap 사용이 높으면 물리 메모리 부족',
+            counters: [
+                { key: 'Swap',    label: 'Swap 사용률', unit: '%', color: '#7f8c8d', aggregate: 'avg', help: '스왑 메모리 사용률 (%). 높으면 물리 메모리 부족' },
+                { key: 'PageIn',  label: 'Page In',     unit: 'page', color: '#e67e22', aggregate: 'sum', help: '디스크→메모리 페이지 로드 횟수' },
+                { key: 'PageOut', label: 'Page Out',    unit: 'page', color: '#d35400', aggregate: 'sum', help: '메모리→디스크 페이지 스왑 횟수. 높으면 성능 저하 원인' },
+            ]
+        }
+    ];
+
+    const JAVA_GROUPS = [
+        {
+            name: 'Transaction', badge: 'java', help: '트랜잭션 처리량과 응답 성능. TPS가 낮고 응답시간이 높으면 병목 발생',
+            counters: [
+                { key: 'TPS',           label: 'TPS',            unit: 'tps', color: '#4a90d9', aggregate: 'sum', help: '초당 트랜잭션 처리 수 (Transactions Per Second)' },
+                { key: 'ElapsedTime',   label: '응답시간',        unit: 'ms',  color: '#e67e22', aggregate: 'avg', threshold: {value:3000, label:'임계치 3000ms', color:'#e74c3c'}, help: '트랜잭션 평균 응답시간 (ms)' },
+                { key: 'SqlTimeByService', label: 'SQL Time',    unit: 'ms',  color: '#16a085', aggregate: 'avg', help: '서비스당 SQL 소요시간 (ms). 높으면 쿼리 튜닝 필요' },
+                { key: 'ActiveService', label: 'Active Service', unit: '건',  color: '#e74c3c', aggregate: 'sum', threshold: {value:10, label:'임계치 10', color:'#e74c3c'}, help: '현재 처리 중인 요청 수 (높으면 병목 의심)' },
+                { key: 'ServiceCount',  label: 'Service Count',  unit: 'cnt/min', color: '#2980b9', aggregate: 'sum', help: '분당 처리 완료된 트랜잭션 수' },
+            ]
+        },
+        {
+            name: 'JVM Resource', badge: 'java', help: 'JVM 프로세스의 CPU/메모리 사용 현황. CPU 급등 시 병목, HeapUsed가 HeapTotal 근접 시 OOM 위험',
+            counters: [
+                { key: 'ProcCpu',   label: 'Process CPU', unit: '%',  color: '#e74c3c', aggregate: 'avg', threshold: {value:80, label:'임계치 80%', color:'#e74c3c'}, help: 'JVM 프로세스의 CPU 사용률 (%). 서버 전체가 아닌 이 Java 앱만의 CPU' },
+                { key: 'HeapUsed',  label: 'Heap Used',   unit: 'MB', color: '#27ae60', aggregate: 'sum', help: 'JVM 힙 메모리 사용량 (GC 대상 영역)' },
+                { key: 'HeapTotal', label: 'Heap Total',  unit: 'MB', color: '#2ecc71', aggregate: 'sum', help: 'JVM 힙 메모리 전체 크기 (-Xmx 설정)' },
+            ]
+        },
+        {
+            name: 'GC (Garbage Collection)', badge: 'java', help: 'GC 빈도와 소요 시간. GC가 잦고 오래 걸리면 메모리 최적화 필요',
+            counters: [
+                { key: 'GcCount', label: 'GC Count', unit: '회', color: '#f39c12', aggregate: 'sum', help: 'GC 발생 횟수 (급증 시 메모리 부족 의심)' },
+                { key: 'GcTime',  label: 'GC Time',  unit: 'ms', color: '#d68910', aggregate: 'sum', help: 'GC 소요 시간 (STW 포함, 길면 응답 지연 원인)' },
+            ]
+        }
+    ];
+
+    // 그룹에서 전체 카운터 목록 추출
+    function getAllCounters(groups) {
+        return groups.flatMap(g => g.counters);
+    }
+
+    function helpIcon(text) {
+        return '<span class="help-icon">?<span class="tooltip">' + text + '</span></span>';
+    }
+
+    // 요약 카드용 집계 계산 (멀티 인스턴스 대응)
+    function calcSummaryValue(counterResult, aggregate) {
+        const byObj = counterResult.byObj || {};
+        const instances = Object.keys(byObj);
+        const agg = aggregate || 'avg';
+
+        // 싱글 인스턴스 또는 byObj 없음
+        if (instances.length <= 1) {
+            const vals = counterResult.values || [];
+            if (vals.length === 0) return { value: 0, detail: '' };
+            const avgVal = vals.reduce(function(s, v) { return s + v; }, 0) / vals.length;
+            return { value: avgVal, detail: '' };
+        }
+
+        // 멀티 인스턴스: 인스턴스별 평균 산출
+        var instAvgs = [];
+        instances.forEach(function(name) {
+            var v = byObj[name].values || [];
+            var a = v.length > 0 ? v.reduce(function(s, x) { return s + x; }, 0) / v.length : 0;
+            instAvgs.push({ name: name, avg: a });
+        });
+
+        if (agg === 'sum') {
+            var total = instAvgs.reduce(function(s, x) { return s + x.avg; }, 0);
+            var detail = instAvgs.map(function(x) { return x.name + ' 평균 ' + x.avg.toFixed(1); }).join(' + ')
+                + ' = ' + total.toFixed(1) + ' (인스턴스 합산)';
+            return { value: total, detail: detail };
+        } else {
+            var sum = instAvgs.reduce(function(s, x) { return s + x.avg; }, 0);
+            var avgOfAvgs = sum / instances.length;
+            var detail = '(' + instAvgs.map(function(x) { return x.name + ' 평균 ' + x.avg.toFixed(1); }).join(' + ')
+                + ') ÷ ' + instances.length + ' = ' + avgOfAvgs.toFixed(1) + ' (인스턴스 평균)';
+            return { value: avgOfAvgs, detail: detail };
+        }
+    }
+
+    // ==================== API ====================
+    function getApiBase() { return document.getElementById('apiUrl').value.replace(/\/$/, ''); }
+
+    async function apiFetch(path) {
+        const res = await fetch(getApiBase() + path);
+        if (!res.ok) throw new Error('API error: ' + res.status);
+        const json = await res.json();
+        if (String(json.status) !== '200') throw new Error('Scouter error: ' + json.message);
+        return json;
+    }
+
+    async function loadObjects() {
+        try {
+            const data = await apiFetch('/scouter/v1/object');
+            objectsCache = data.result || [];
+            const select = document.getElementById('objSelect');
+            select.innerHTML = '';
+            if (objectsCache.length === 0) {
+                select.innerHTML = '<option value="">Object 없음</option>';
+                return;
+            }
+            // 타입별 그룹 옵션 추가 (2개 이상일 때)
+            const byType = {};
+            objectsCache.forEach(obj => {
+                const t = obj.objFamily === 'host' ? 'host' : 'java';
+                if (!byType[t]) byType[t] = [];
+                byType[t].push(obj);
+            });
+            Object.entries(byType).forEach(([type, objs]) => {
+                if (objs.length >= 2) {
+                    const opt = document.createElement('option');
+                    opt.value = objs.map(o => o.objHash).join(',');
+                    const label = type === 'host' ? 'Host' : 'Java';
+                    opt.textContent = '[전체 ' + label + '] (' + objs.length + '개)';
+                    opt.dataset.family = type === 'host' ? 'host' : 'javaee';
+                    opt.dataset.type = type === 'host' ? objs[0].objType : 'java';
+                    select.appendChild(opt);
+                }
+            });
+
+            objectsCache.forEach(obj => {
+                const opt = document.createElement('option');
+                opt.value = obj.objHash;
+                opt.textContent = obj.objName + ' (' + obj.objType + ')';
+                opt.dataset.family = obj.objFamily || '';
+                opt.dataset.type = obj.objType || '';
+                select.appendChild(opt);
+            });
+        } catch (e) {
+            document.getElementById('statusMsg').textContent = 'Scouter 연결 실패: ' + e.message;
+            document.getElementById('objSelect').innerHTML = '<option value="">연결 실패</option>';
+        }
+    }
+
+    // ==================== 자동 새로고침 — 비활성화 (XLog 모니터로 대체) ====================
+    /*
+    function toggleAutoRefresh() {
+        if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+        if (document.getElementById('autoRefresh').checked) {
+            const interval = Number(document.getElementById('refreshInterval').value);
+            autoRefreshTimer = setInterval(() => generateReport(), interval);
+        }
+    }
+    */
+
+    // ==================== 리포트 생성 ====================
+    async function generateReport() {
+        const btn = document.getElementById('btnGenerate');
+        const status = document.getElementById('statusMsg');
+        const objHash = document.getElementById('objSelect').value;
+        const dateInput = document.getElementById('reportDateInput');
+        const dateStr = dateInput.value;
+        const selOpt = document.getElementById('objSelect').selectedOptions[0];
+
+        if (!objHash) { status.textContent = 'Object를 선택하세요'; return; }
+
+        btn.disabled = true;
+        status.textContent = '';
+        status.style.color = '#4a90d9';
+
+        // 프로그레스 바 초기화
+        const progressWrap = document.getElementById('progressWrap');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const progressPct = document.getElementById('progressPct');
+        progressWrap.classList.add('show');
+        progressFill.style.width = '0%';
+        progressText.textContent = '준비 중...';
+        progressPct.textContent = '0%';
+        function updateProgress(pct, text) {
+            progressFill.style.width = pct + '%';
+            progressText.textContent = text;
+            progressPct.textContent = Math.round(pct) + '%';
+        }
+
+        const parts = dateStr.split('-');
+        const year = Number(parts[0]), month = Number(parts[1]) - 1, day = Number(parts[2]);
+        const [startH, startM] = document.getElementById('reportStartTime').value.split(':').map(Number);
+        const [endH, endM] = document.getElementById('reportEndTime').value.split(':').map(Number);
+        const startTime = new Date(year, month, day, startH, startM, 0).getTime();
+        const endTime = new Date(year, month, day, endH, endM, 59).getTime();
+        const yyyymmdd = parts.join('');
+
+        const isFullDay = (startH === 0 && startM === 0 && endH === 23 && endM === 59);
+        const timeRangeStr = isFullDay ? '' : ' ' + document.getElementById('reportStartTime').value + '~' + document.getElementById('reportEndTime').value;
+        document.getElementById('reportDate').textContent = dateStr + timeRangeStr + ' Performance Report';
+
+        const objFamily = selOpt.dataset.family;
+        const objType = selOpt.dataset.type;
+        const isHost = (objFamily === 'host' || objType === 'windows' || objType === 'linux');
+        const groups = isHost ? HOST_GROUPS : JAVA_GROUPS;
+        const counters = getAllCounters(groups);
+
+        try {
+            // 카운터 데이터 수집 (동시 2개씩 제한 — Scouter API 과부하 방지)
+            const counterResults = [];
+            const totalSteps = Math.ceil(counters.length / 2) + 2; // 배치 + XLog + 알림
+            let stepsDone = 0;
+            for (let ci = 0; ci < counters.length; ci += 2) {
+                const batch = counters.slice(ci, ci + 2);
+                updateProgress((stepsDone / totalSteps) * 100, batch.map(c => c.label).join(', ') + ' 수집 중...');
+                const batchResults = await Promise.all(
+                    batch.map(c => fetchCounter(objHash, c.key, startTime, endTime))
+                );
+                counterResults.push(...batchResults);
+                stepsDone++;
+            }
+
+            // 엑셀 내보내기용 저장
+            lastCounterResults = counterResults;
+            lastCounters = counters;
+            lastIsHost = isHost;
+
+            // 리포트 HTML 동적 생성
+            let html = '';
+
+            // 전체 요약 카드 (조회조건 바로 아래, 그룹 위)
+            html += '<div class="section-title">';
+            html += '<span class="section-badge ' + (isHost ? 'host' : 'java') + '">' + (isHost ? 'HOST' : 'JAVA') + '</span>';
+            html += '전체 요약 ' + helpIcon('선택한 Object의 카운터 집계. sum=인스턴스 합산, avg=인스턴스 평균');
+            html += '</div>';
+            html += '<div class="summary-cards">';
+            counters.forEach((c, i) => {
+                const isXlogBased = (c.key === 'TPS' || c.key === 'ServiceCount');
+                const result = calcSummaryValue(counterResults[i], c.aggregate);
+                const helpText = isXlogBased
+                    ? c.help + '\n\n(XLog 로딩 후 건수 기반으로 갱신)'
+                    : c.help + (result.detail ? '\n\n산출: ' + result.detail : '');
+                const displayVal = isXlogBased ? '-' : (result.value ? result.value.toFixed(1) : '-');
+                html += '<div class="card" id="summaryCard_' + c.key + '">';
+                html += '<div class="label">' + c.label + ' ' + helpIcon(helpText) + '</div>';
+                html += '<div class="value">' + displayVal + '</div>';
+                html += '<div class="unit">' + c.unit + '</div>';
+                html += '</div>';
+            });
+            html += '</div>';
+
+            // 그룹별 차트
+            let counterIdx = 0;
+            groups.forEach(group => {
+                // 그룹 타이틀
+                html += '<div class="section-title">';
+                html += '<span class="section-badge ' + group.badge + '">' + (isHost ? 'HOST' : 'JAVA') + '</span>';
+                html += group.name + ' ' + helpIcon(group.help);
+                html += '</div>';
+
+                // 차트 (2열 그리드)
+                for (let i = 0; i < group.counters.length; i += 2) {
+                    html += '<div class="chart-row">';
+                    for (let j = i; j < Math.min(i + 2, group.counters.length); j++) {
+                        const c = group.counters[j];
+                        html += '<div class="chart-box">';
+                        html += '<h3>' + c.label + ' ' + helpIcon(c.help) + '</h3>';
+                        html += '<div class="chart-stats" id="stats_' + c.key + '"></div>';
+                        html += '<canvas id="chart_' + c.key + '"></canvas>';
+                        html += '</div>';
+                    }
+                    if (group.counters.length - i === 1) {
+                        html += '<div class="chart-box" style="visibility:hidden;"></div>';
+                    }
+                    html += '</div>';
+                }
+
+                counterIdx += group.counters.length;
+            });
+
+            // XLog (Java만)
+            if (!isHost) {
+                html += '<div class="xlog-section"><div class="chart-row"><div class="chart-box full-width">';
+                html += '<h3>XLog (트랜잭션 분포) ' + helpIcon('각 트랜잭션의 응답시간을 시간축에 점으로 표시. 빠름(파랑) / 보통(주황) / 느림(빨강) / 에러(검정)') + '</h3>';
+                html += '<div class="chart-stats" id="statsXlog"></div>';
+                html += '<canvas id="chartXlog" height="120"></canvas>';
+                html += '<div class="xlog-legend">';
+                html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(52,152,219,0.7)"></div>빠름 (&lt;1초)</div>';
+                html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(243,156,18,0.7)"></div>보통 (1~3초)</div>';
+                html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(231,76,60,0.7)"></div>느림 (&gt;3초)</div>';
+                html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(0,0,0,0.7)"></div>에러</div>';
+                html += '</div></div></div></div>';
+
+                // TXID 조회
+                html += '<div class="chart-row"><div class="chart-box full-width">';
+                html += '<h3>TXID 조회 ' + helpIcon('TXID를 입력하면 해당 트랜잭션의 프로파일을 조회합니다') + '</h3>';
+                html += '<div style="display:flex;gap:8px;align-items:center;">';
+                html += '<input type="text" id="txidSearchInput" placeholder="TXID 입력" onkeydown="if(event.key===\'Enter\')searchByTxid()" style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">';
+                html += '<button onclick="searchByTxid()" style="padding:6px 16px;background:#4a90d9;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">조회</button>';
+                html += '</div><div id="txidSearchResult" style="margin-top:8px;font-size:13px;color:#888;"></div>';
+                html += '</div></div>';
+
+                // 느린 API Top 5
+                html += '<div class="chart-row"><div class="chart-box full-width">';
+                html += '<h3>느린 API Top 5 ' + helpIcon('응답시간이 가장 긴 상위 5개 트랜잭션. 성능 병목 지점 파악에 활용') + '</h3>';
+                html += '<table class="slow-api-table"><thead><tr><th>#</th><th>서비스명</th><th>TXID</th><th>응답시간 (ms)</th><th>시작 시간</th><th>종료 시간</th></tr></thead>';
+                html += '<tbody id="slowApiBody"><tr><td colspan="6" style="text-align:center;color:#999;">로딩 중...</td></tr></tbody></table>';
+                html += '</div></div>';
+
+                // Object별 통계 요약
+                html += '<div class="chart-row"><div class="chart-box full-width">';
+                html += '<h3>Object별 통계 요약 ' + helpIcon('XLog 데이터를 인스턴스(Object)별로 그룹핑한 통계. 호출수 기준 내림차순') + '</h3>';
+                html += '<table class="slow-api-table"><thead><tr><th>Object</th><th>호출수</th><th>평균(ms)</th><th>최대(ms)</th><th>평균SQL건수</th><th>평균SQL시간(ms)</th><th>에러수</th><th>에러율(%)</th></tr></thead>';
+                html += '<tbody id="objectSummaryBody"><tr><td colspan="6" style="text-align:center;color:#999;">로딩 중...</td></tr></tbody></table>';
+                html += '</div></div>';
+
+                // 서비스별 통계 요약
+                html += '<div class="chart-row"><div class="chart-box full-width">';
+                html += '<h3>서비스별 통계 요약 ' + helpIcon('XLog 데이터를 서비스명으로 그룹핑한 통계. 평균 응답시간 기준 내림차순') + '</h3>';
+                html += '<table class="slow-api-table"><thead><tr><th>서비스명</th><th>호출수</th><th>평균(ms)</th><th>최대(ms)</th><th>평균SQL건수</th><th>평균SQL시간(ms)</th><th>에러수</th><th>에러율(%)</th></tr></thead>';
+                html += '<tbody id="serviceSummaryBody"><tr><td colspan="6" style="text-align:center;color:#999;">로딩 중...</td></tr></tbody></table>';
+                html += '</div></div>';
+
+                // 에러 분석
+                html += '<div class="chart-row"><div class="chart-box full-width">';
+                html += '<h3>에러 분석 ' + helpIcon('XLog 중 에러 건만 필터링. N+1 의심(SQL건수≥임계값), SQL병목(3초 이상 &amp; SQL비율≥98%) 태그 표시') + '</h3>';
+                html += '<table class="slow-api-table"><thead><tr><th>시간</th><th>인스턴스</th><th>서비스명</th><th>TXID</th><th>응답시간(ms)</th><th>에러 메시지</th><th>태그</th></tr></thead>';
+                html += '<tbody id="errorAnalysisBody"><tr><td colspan="7" style="text-align:center;color:#999;">로딩 중...</td></tr></tbody></table>';
+                html += '</div></div>';
+            }
+
+            // 알림 이력
+            html += '<div class="alert-section"><div class="chart-row"><div class="chart-box full-width">';
+            html += '<h3>알림 이력 ' + helpIcon('Scouter에서 감지한 실시간 알림. FATAL/ERROR/WARN/INFO 등급별 필터 가능') + '</h3>';
+            html += '<div class="alert-filters" id="alertFilters">';
+            html += '<button class="alert-filter-btn active" onclick="filterAlerts(\'ALL\', this)">전체<span class="count" id="alertCountALL">0</span></button>';
+            html += '<button class="alert-filter-btn" onclick="filterAlerts(\'FATAL\', this)">FATAL<span class="count" id="alertCountFATAL">0</span></button>';
+            html += '<button class="alert-filter-btn" onclick="filterAlerts(\'ERROR\', this)">ERROR<span class="count" id="alertCountERROR">0</span></button>';
+            html += '<button class="alert-filter-btn" onclick="filterAlerts(\'WARN\', this)">WARN<span class="count" id="alertCountWARN">0</span></button>';
+            html += '<button class="alert-filter-btn" onclick="filterAlerts(\'INFO\', this)">INFO<span class="count" id="alertCountINFO">0</span></button>';
+            html += '</div><div class="alert-list" id="alertList"><div class="alert-item" style="color:#999;">로딩 중...</div></div>';
+            html += '</div></div></div>';
+
+            // DOM 삽입
+            document.getElementById('reportContent').innerHTML = html;
+
+            // 차트 그리기
+            updateProgress((stepsDone / totalSteps) * 100, '차트 렌더링 중...');
+            Object.keys(charts).forEach(k => { if (charts[k]) charts[k].destroy(); });
+            charts = {};
+
+            let drawIdx = 0;
+            groups.forEach(group => {
+                group.counters.forEach((c, i) => {
+                    const vals = c.transform ? counterResults[drawIdx].values.map(c.transform) : counterResults[drawIdx].values;
+                    showStats('stats_' + c.key, vals, 1, c.unit);
+                    drawChart('chart_' + c.key, c.label + ' (' + c.unit + ')', counterResults[drawIdx], c.color, c.threshold || null, c.transform || null, c.aggregate);
+                    drawIdx++;
+                });
+            });
+
+            // XLog (Java만)
+            if (!isHost) {
+                updateProgress((stepsDone / totalSteps) * 100, 'XLog 수집 중...');
+                const allXlogs = await loadXLog(objHash, yyyymmdd, startTime, endTime);
+                updateTpsSummaryCards(allXlogs, startTime, endTime);
+                stepsDone++;
+            }
+
+            // 알림
+            updateProgress((stepsDone / totalSteps) * 100, '알림 이력 수집 중...');
+            await loadAlerts(objType);
+            stepsDone++;
+
+            updateProgress(100, '완료!');
+            status.textContent = '리포트 생성 완료! (' + new Date().toLocaleTimeString() + ')';
+            status.style.color = '#27ae60';
+            // document.getElementById('btnExcel').disabled = false; // 엑셀 내보내기 버튼 비활성화
+            setTimeout(() => progressWrap.classList.remove('show'), 1500);
+        } catch (e) {
+            status.textContent = '오류: ' + e.message;
+            status.style.color = '#e74c3c';
+            progressWrap.classList.remove('show');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function fetchCounter(objHash, counter, startTime, endTime) {
+        try {
+            const times = [], values = [];
+            const byObj = {}; // 인스턴스별 분리 데이터
+            const SIX_HOURS = 6 * 60 * 60 * 1000;
+            let chunkStart = startTime;
+
+            // 6시간 단위로 분할 호출 (API 제한: 21600초)
+            while (chunkStart < endTime) {
+                const chunkEnd = Math.min(chunkStart + SIX_HOURS, endTime);
+                const data = await apiFetch(
+                    '/scouter/v1/counter/' + counter
+                    + '?objHashes=' + objHash
+                    + '&startTimeMillis=' + chunkStart
+                    + '&endTimeMillis=' + chunkEnd
+                );
+                (data.result || []).forEach(item => {
+                    if (item.timeList && item.valueList) {
+                        // 인스턴스명 추출 (/host/instance → instance)
+                        const objName = item.objName ? item.objName.split('/').pop() : '(unknown)';
+                        if (!byObj[objName]) byObj[objName] = { times: [], values: [] };
+                        item.timeList.forEach((t, i) => {
+                            const tv = Number(t);
+                            const vv = Number(item.valueList[i]) || 0;
+                            times.push(tv);
+                            values.push(vv);
+                            byObj[objName].times.push(tv);
+                            byObj[objName].values.push(vv);
+                        });
+                    }
+                });
+                chunkStart = chunkEnd;
+            }
+            // 시간순 정렬 (API 응답 순서가 보장되지 않을 수 있음)
+            const indices = times.map((t, i) => i);
+            indices.sort((a, b) => times[a] - times[b]);
+            // 인스턴스별도 시간순 정렬
+            Object.values(byObj).forEach(obj => {
+                const idx = obj.times.map((t, i) => i);
+                idx.sort((a, b) => obj.times[a] - obj.times[b]);
+                obj.times = idx.map(i => obj.times[i]);
+                obj.values = idx.map(i => obj.values[i]);
+            });
+            return { times: indices.map(i => times[i]), values: indices.map(i => values[i]), byObj };
+        } catch (e) {
+            console.warn('[fetchCounter] ' + counter + ' 실패:', e.message);
+            return { times: [], values: [], byObj: {} };
+        }
+    }
+
+    // ==================== XLog ====================
+    // XLog chunk 단건 요청
+    async function fetchXlogChunk(objHash, yyyymmdd, chunkStart, chunkEnd, sid) {
+        // 커서 기반 페이지네이션: hasMore가 true인 동안 반복
+        let allXlogs = [];
+        let lastTxid = null;
+        let lastXLogTime = null;
+        const MAX_PAGES = 100; // 무한루프 방지
+
+        for (let page = 0; page < MAX_PAGES; page++) {
+            let url = '/scouter/v1/xlog/' + yyyymmdd
+                + '?objHashes=' + objHash
+                + '&startTimeMillis=' + chunkStart
+                + '&endTimeMillis=' + chunkEnd
+                + '&serverId=' + sid;
+
+            if (lastTxid) {
+                url += '&lastTxid=' + lastTxid + '&lastXLogTime=' + lastXLogTime;
+            }
+
+            const data = await apiFetch(url);
+            const result = data.result || {};
+            const xlogs = result.xlogs || [];
+            allXlogs = allXlogs.concat(xlogs);
+
+            if (!result.hasMore || xlogs.length === 0) break;
+            lastTxid = result.lastTxid;
+            lastXLogTime = result.lastXLogTime;
+        }
+
+        return allXlogs;
+    }
+
+    async function loadXLog(objHash, yyyymmdd, startTime, endTime) {
+        let allXlogs = [];
+        const sid = await getServerId();
+        const CHUNK = 5 * 60 * 1000; // 5분 단위로 시간 분할
+
+        try {
+            for (let t = startTime; t < endTime; t += CHUNK) {
+                const chunkEnd = Math.min(t + CHUNK, endTime);
+                const xlogs = await fetchXlogChunk(objHash, yyyymmdd, t, chunkEnd, sid);
+                xlogs.forEach(x => {
+                    const et = Number(x.endTime);
+                    if (et >= startTime && et <= endTime) allXlogs.push(x);
+                });
+                // 수집 상한 없음 — fetchXlogChunk 내부 커서 페이지네이션으로 전체 수집
+            }
+        } catch (e) { /* 빈 데이터로 진행 */ }
+
+        // 서비스 해시 → 서비스명 변환 (dictionary API)
+        await resolveServiceNames(allXlogs, yyyymmdd);
+
+        // XLog 다운샘플링 (차트만, 분석/엑셀은 전체)
+        const MAX_XLOG_API_RENDER = 50000;
+        let xlogForRender = allXlogs;
+        let downsampleMsg = '';
+        if (allXlogs.length > MAX_XLOG_API_RENDER) {
+            // 에러/느린 요청 우선 보존
+            const important = allXlogs.filter(x => (x.error && Number(x.error) !== 0) || Number(x.elapsed) > 3000);
+            const rest = allXlogs.filter(x => !(x.error && Number(x.error) !== 0) && Number(x.elapsed) <= 3000);
+            const sampleCount = MAX_XLOG_API_RENDER - important.length;
+            const sampled = sampleCount > 0 ? rest.sort(() => Math.random() - 0.5).slice(0, sampleCount) : [];
+            xlogForRender = [...important, ...sampled].sort((a, b) => Number(a.endTime) - Number(b.endTime));
+            downsampleMsg = ' (' + allXlogs.length + '건 중 ' + xlogForRender.length + '건 표시)';
+        }
+        drawXLogChart(xlogForRender);
+        updateSlowApiTable(allXlogs);
+        updateObjectSummary(allXlogs);
+        updateServiceSummary(allXlogs);
+        updateErrorAnalysis(allXlogs);
+        const statsEl = document.getElementById('statsXlog');
+        if (statsEl) statsEl.textContent = '총 ' + allXlogs.length + '건' + downsampleMsg;
+
+        return allXlogs;
+    }
+
+    // XLog 건수 기반 TPS 요약 카드 업데이트
+    function updateTpsSummaryCards(allXlogs, startTime, endTime) {
+        if (!allXlogs || allXlogs.length === 0) return;
+        const totalCount = allXlogs.length;
+        const durationSec = (endTime - startTime) / 1000;
+        const totalTps = durationSec > 0 ? totalCount / durationSec : 0;
+
+        // 인스턴스별 건수
+        var byInst = {};
+        allXlogs.forEach(function(x) {
+            var name = (x.objName || '(unknown)').split('/').pop();
+            if (!byInst[name]) byInst[name] = 0;
+            byInst[name]++;
+        });
+        var instNames = Object.keys(byInst).sort();
+        var instDetail = instNames.map(function(n) { return n + ' ' + byInst[n] + '건'; }).join(' + ');
+
+        // TPS 카드 업데이트
+        var tpsCard = document.getElementById('summaryCard_TPS');
+        if (tpsCard) {
+            tpsCard.querySelector('.value').textContent = totalTps.toFixed(1);
+            var helpSpan = tpsCard.querySelector('.tooltip');
+            if (helpSpan) {
+                helpSpan.textContent = '초당 트랜잭션 처리 수\n\n산출: 총 ' + totalCount + '건 ÷ ' + Math.round(durationSec) + '초 = ' + totalTps.toFixed(1) + ' TPS (XLog 건수 기반)'
+                    + '\n내역: ' + instDetail;
+            }
+        }
+
+        // ServiceCount 카드 업데이트 (분당 처리건수)
+        var totalPerMin = durationSec > 0 ? totalCount / (durationSec / 60) : 0;
+        var scCard = document.getElementById('summaryCard_ServiceCount');
+        if (scCard) {
+            scCard.querySelector('.value').textContent = totalPerMin.toFixed(1);
+            var helpSpan = scCard.querySelector('.tooltip');
+            if (helpSpan) {
+                helpSpan.textContent = '분당 처리 완료된 트랜잭션 수\n\n산출: 총 ' + totalCount + '건 ÷ ' + (durationSec / 60).toFixed(1) + '분 = ' + totalPerMin.toFixed(1) + ' cnt/min (XLog 건수 기반)'
+                    + '\n내역: ' + instDetail;
+            }
+        }
+    }
+
+    async function resolveServiceNames(xlogs, yyyymmdd) {
+        if (!xlogs || xlogs.length === 0) return;
+        try {
+            const serverInfo = await apiFetch('/scouter/v1/info/server');
+            const serverId = serverInfo.result && serverInfo.result[0] ? serverInfo.result[0].id : '0';
+            const hashes = [...new Set(xlogs.map(x => x.service))];
+            // 50개씩 분할 호출 (URL 길이 제한 방지)
+            const nameMap = {};
+            for (let i = 0; i < hashes.length; i += 50) {
+                const chunk = hashes.slice(i, i + 50);
+                const dictKeys = chunk.map(h => 'service:' + h).join(',');
+                const data = await apiFetch('/scouter/v1/dictionary/' + yyyymmdd + '?dictKeys=' + dictKeys + '&serverId=' + serverId);
+                (data.result || []).forEach(d => { nameMap[d.dictKey] = d.text; });
+            }
+            xlogs.forEach(x => { x.serviceName = nameMap[x.service] || x.service; });
+        } catch (e) { /* 변환 실패 시 해시값 그대로 표시 */ }
+        // 에러 해시 → 에러 메시지 변환
+        try {
+            const errorHashes = [...new Set(xlogs.filter(x => x.error && Number(x.error) !== 0).map(x => x.error))];
+            if (errorHashes.length > 0) {
+                const serverInfo = await apiFetch('/scouter/v1/info/server');
+                const serverId = serverInfo.result && serverInfo.result[0] ? serverInfo.result[0].id : '0';
+                const errorMap = {};
+                for (let i = 0; i < errorHashes.length; i += 50) {
+                    const chunk = errorHashes.slice(i, i + 50);
+                    const dictKeys = chunk.map(h => 'error:' + h).join(',');
+                    const data = await apiFetch('/scouter/v1/dictionary/' + yyyymmdd + '?dictKeys=' + dictKeys + '&serverId=' + serverId);
+                    (data.result || []).forEach(d => { errorMap[d.dictKey] = d.text; });
+                }
+                xlogs.forEach(x => {
+                    if (x.error && Number(x.error) !== 0) {
+                        x.errorMessage = errorMap[String(x.error)] || ('error hash: ' + x.error);
+                    }
+                });
+            }
+        } catch (e) { /* 에러 메시지 변환 실패 시 무시 */ }
+        // objHash → objName 매핑 (취합 조회 시 인스턴스 구분용)
+        xlogs.forEach(x => {
+            const obj = objectsCache.find(o => String(o.objHash) === String(x.objHash));
+            x.objName = obj ? obj.objName.split('/').pop() : '';
+        });
+    }
+
+    let xlogDataPoints = []; // 차트용 데이터포인트 (드래그 선택에 사용)
+
+    function drawXLogChart(xlogs) {
+        if (charts['chartXlog']) charts['chartXlog'].destroy();
+        const canvas = document.getElementById('chartXlog');
+        if (!canvas) return;
+
+        xlogDataPoints = xlogs.map(x => {
+            const elapsed = Number(x.elapsed);
+            const error = x.error && Number(x.error) !== 0;
+            let color;
+            if (error) color = 'rgba(0,0,0,0.7)';
+            else if (elapsed > 3000) color = 'rgba(231,76,60,0.7)';
+            else if (elapsed > 1000) color = 'rgba(243,156,18,0.7)';
+            else color = 'rgba(52,152,219,0.5)';
+
+            let sqlCount = Number(x.sqlCount) || 0;
+            let sqlTime = Number(x.sqlTime) || 0;
+            // [2026-03-12] hook_jdbc_pstmt_classes 주석처리로 더블카운팅 근본 해결 → 보정 불필요
+            // if (sqlTime > elapsed && sqlTime > 0) { sqlCount = Math.round(sqlCount / 2); sqlTime = Math.round(sqlTime / 2); }
+            return { x: Number(x.endTime), y: elapsed, color, error, errorMessage: x.errorMessage || '', status: Number(x.status) || 0, service: x.serviceName || x.service || '', txid: x.txid, sqlCount, sqlTime, apicallCount: Number(x.apicallCount) || 0, apicallTime: Number(x.apicallTime) || 0, cpu: Number(x.cpu) || 0, ipaddr: x.ipaddr || '', objName: x.objName || '' };
+        });
+
+        charts['chartXlog'] = new Chart(canvas, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    data: xlogDataPoints,
+                    pointBackgroundColor: xlogDataPoints.map(p => p.color),
+                    pointBorderColor: xlogDataPoints.map(p => p.color),
+                    pointRadius: 3, pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                animation: false,
+                onClick: function(evt, elements) {
+                    if (isDragSelection) return;
+                    if (elements.length > 0) {
+                        openProfileModal([xlogDataPoints[elements[0].index]]);
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                const p = xlogDataPoints[ctx.dataIndex];
+                                const t = new Date(p.x);
+                                const prefix = p.objName ? '[' + p.objName + '] ' : '';
+                                return prefix + p.service + ' | ' + p.y + 'ms | ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds());
+                            }
+                        }
+                    },
+                    annotation: {
+                        annotations: {
+                            thresholdLine: {
+                                type: 'line', yMin: 3000, yMax: 3000,
+                                borderColor: 'rgba(231,76,60,0.5)', borderWidth: 2, borderDash: [6, 4],
+                                label: { display: true, content: '3초', position: 'end', backgroundColor: 'rgba(231,76,60,0.7)', font: { size: 10 } }
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { callback: v => { const d = new Date(v); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }, maxTicksLimit: 12, font: { size: 11 } } },
+                    y: { beginAtZero: true, title: { display: true, text: 'Elapsed (ms)', font: { size: 11 } } }
+                }
+            }
+        });
+
+        // 드래그 선택 기능 초기화
+        setupXLogDrag(canvas);
+    }
+
+    // ==================== XLog 드래그 선택 ====================
+    let isDragSelection = false;
+    function setupXLogDrag(canvas) {
+        // canvas를 감싸는 div를 만들어 selectBox 기준점을 canvas와 일치시킴
+        const canvasWrapper = document.createElement('div');
+        canvasWrapper.style.position = 'relative';
+        canvasWrapper.style.display = 'inline-block';
+        canvasWrapper.style.width = '100%';
+        canvas.parentElement.insertBefore(canvasWrapper, canvas);
+        canvasWrapper.appendChild(canvas);
+
+        let selectBox = document.createElement('div');
+        selectBox.className = 'xlog-select-box';
+        selectBox.style.display = 'none';
+        canvasWrapper.appendChild(selectBox);
+
+        let dragging = false, startX = 0, startY = 0;
+
+        function getCssPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        }
+
+        canvas.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            dragging = true;
+            const pos = getCssPos(e);
+            startX = pos.x;
+            startY = pos.y;
+            selectBox.style.left = startX + 'px';
+            selectBox.style.top = startY + 'px';
+            selectBox.style.width = '0';
+            selectBox.style.height = '0';
+            selectBox.style.display = 'none';
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            if (!dragging) return;
+            const pos = getCssPos(e);
+            const dx = Math.abs(pos.x - startX), dy = Math.abs(pos.y - startY);
+            if (dx > 5 || dy > 5) {
+                isDragSelection = true;
+                selectBox.style.display = 'block';
+                selectBox.style.left = Math.min(startX, pos.x) + 'px';
+                selectBox.style.top = Math.min(startY, pos.y) + 'px';
+                selectBox.style.width = dx + 'px';
+                selectBox.style.height = dy + 'px';
+            }
+        });
+
+        canvas.addEventListener('mouseup', e => {
+            if (!dragging) return;
+            dragging = false;
+            const isVisible = selectBox.style.display === 'block';
+            selectBox.style.display = 'none';
+            setTimeout(() => { isDragSelection = false; }, 0);
+            if (!isVisible) return;
+
+            // 선택 영역 → 데이터 포인트 매칭 (Chart.js는 CSS 픽셀 기준)
+            const chart = charts['chartXlog'];
+            if (!chart) return;
+            const endPos = getCssPos(e);
+            const minPx = Math.min(startX, endPos.x), maxPx = Math.max(startX, endPos.x);
+            const minPy = Math.min(startY, endPos.y), maxPy = Math.max(startY, endPos.y);
+
+            const xScale = chart.scales.x, yScale = chart.scales.y;
+            const minXVal = xScale.getValueForPixel(minPx);
+            const maxXVal = xScale.getValueForPixel(maxPx);
+            const maxYVal = yScale.getValueForPixel(minPy); // y축은 반전
+            const minYVal = yScale.getValueForPixel(maxPy);
+
+            const selected = xlogDataPoints.filter(p =>
+                p.x >= minXVal && p.x <= maxXVal && p.y >= minYVal && p.y <= maxYVal
+            );
+
+            if (selected.length > 0) {
+                openProfileModal(selected);
+            }
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            if (dragging) { dragging = false; selectBox.style.display = 'none'; }
+        });
+    }
+
+    // ==================== 프로파일 모달 (Paper 스타일) ====================
+    let cachedServerId = null;
+
+    async function getServerId() {
+        if (cachedServerId) return cachedServerId;
+        const info = await apiFetch('/scouter/v1/info/server');
+        cachedServerId = info.result[0].id;
+        return cachedServerId;
+    }
+
+    function openProfileModal(points) {
+        const overlay = document.getElementById('profileOverlay');
+        const titleEl = document.getElementById('profileTitle');
+        const headerInfo = document.getElementById('profileHeaderInfo');
+        const listEl = document.getElementById('profileList');
+        const infoEl = document.getElementById('profileInfo');
+        const bodyEl = document.getElementById('profileBody');
+
+        // 응답시간 내림차순 정렬
+        points.sort((a, b) => b.y - a.y);
+
+        titleEl.textContent = 'XLog Profile';
+        headerInfo.textContent = points.length + '건 선택 (클릭: 단건, 드래그: 다건)';
+        infoEl.innerHTML = '';
+        bodyEl.innerHTML = '<div class="profile-empty">왼쪽 목록에서 트랜잭션을 선택하세요</div>';
+
+        // 왼쪽 리스트 생성
+        listEl.innerHTML = points.map((p, i) => {
+            const elapsed = p.y;
+            const speedClass = elapsed > 3000 ? 'slow' : elapsed > 1000 ? 'warn' : 'fast';
+            return '<div class="profile-list-item" data-idx="' + i + '" onclick="selectProfileItem(this,' + i + ')">'
+                + '<div class="item-service">' + escHtml(p.service) + '</div>'
+                + '<div class="item-meta">'
+                + '<span class="item-elapsed ' + speedClass + '">' + elapsed + 'ms</span>'
+                + '<span>' + formatTimeMs(p.x) + '</span>'
+                + '<span>SQL:' + p.sqlCount + '</span>'
+                + '<span style="color:#bbb;">txid:' + p.txid + '</span>'
+                + '</div></div>';
+        }).join('');
+
+        // 데이터를 모달에 저장
+        overlay._points = points;
+        overlay.classList.add('show');
+
+        // 1건이면 바로 프로파일 로딩
+        if (points.length === 1) {
+            const firstItem = listEl.querySelector('.profile-list-item');
+            selectProfileItem(firstItem, 0);
+        }
+    }
+
+    async function selectProfileItem(el, idx) {
+        // active 표시
+        document.querySelectorAll('.profile-list-item').forEach(e => e.classList.remove('active'));
+        el.classList.add('active');
+
+        const overlay = document.getElementById('profileOverlay');
+        const points = overlay._points;
+        const point = points[idx];
+
+        const infoEl = document.getElementById('profileInfo');
+        const bodyEl = document.getElementById('profileBody');
+
+        infoEl.innerHTML = (point.objName ? '<span><span class="label">인스턴스:</span> ' + escHtml(point.objName) + '</span>' : '')
+            + '<span><span class="label">서비스:</span> ' + escHtml(point.service) + '</span>'
+            + '<span><span class="label">응답시간:</span> ' + point.y + 'ms</span>'
+            + '<span><span class="label">시작:</span> ' + formatTimeMs(point.x - point.y) + '</span>'
+            + '<span><span class="label">종료:</span> ' + formatTimeMs(point.x) + '</span>'
+            + '<span><span class="label">SQL:</span> ' + point.sqlCount + '건 / ' + point.sqlTime + 'ms</span>'
+            + '<span><span class="label">API Call:</span> ' + point.apicallCount + '건 / ' + point.apicallTime + 'ms</span>'
+            + (point.cpu ? '<span><span class="label">CPU:</span> ' + point.cpu + 'ms</span>' : '')
+            + (point.ipaddr ? '<span><span class="label">IP:</span> ' + escHtml(point.ipaddr) + '</span>' : '')
+            + '<span><span class="label">txid:</span> ' + point.txid + '</span>'
+            + (point.status ? '<span><span class="label">HTTP:</span> <span style="color:' + (point.status >= 400 ? '#e74c3c' : point.status >= 300 ? '#e67e22' : '#27ae60') + ';font-weight:bold;">' + point.status + '</span></span>' : '')
+            + (point.error ? '<span style="color:#e74c3c;font-weight:bold;"><span class="label">에러:</span> ' + escHtml(point.errorMessage || 'error') + '</span>' : '');
+        bodyEl.innerHTML = '<div class="profile-step"><span style="color:#999;">프로파일 로딩 중...</span></div>';
+
+        try {
+            const dateStr = document.getElementById('reportDateInput').value.replace(/-/g, '');
+            const serverId = await getServerId();
+            const data = await apiFetch('/scouter/v1/profile-data/' + dateStr + '/' + point.txid + '?serverId=' + serverId);
+            const steps = data.result || [];
+
+            if (steps.length === 0) {
+                bodyEl.innerHTML = '<div class="profile-step"><span style="color:#999;">프로파일 데이터 없음</span></div>';
+                return;
+            }
+
+            // Ratio Bar 계산
+            buildRatioBar(steps, point.y);
+
+            // 필터 영역 표시
+            document.getElementById('profileFilter').style.display = 'flex';
+
+            // ── Scouter 프로파일 순서 변환 ──
+            // Scouter는 메서드 종료(return) 시점에 스텝을 기록한다.
+            // 따라서 API 응답은 후위 순회(post-order) 순서로 온다:
+            //   자식 스텝들이 먼저 나오고, 부모 스텝이 뒤에 나옴.
+            //   예) SQL(13ms) → SQL(260ms) → ServiceImpl.search(8ms, 1046ms)
+            // 이를 전위 순회(pre-order)로 변환하여 진입 순서대로 표시한다:
+            //   부모 스텝이 먼저 나오고, 자식 스텝이 아래에 들여쓰기됨.
+            //   예) ServiceImpl.search(8ms, 1046ms) → SQL(13ms) → SQL(260ms)
+            // 각 스텝의 start_time(진입 시각)과 elapsed(소요 시간)는 순서와 무관한 고정값.
+            const childrenMap = {};
+            const depthMap = {};
+            steps.forEach(s => {
+                const step = s.step || s;
+                const parent = String(step.parent);
+                if (!childrenMap[parent]) childrenMap[parent] = [];
+                childrenMap[parent].push(s);
+            });
+            Object.values(childrenMap).forEach(arr => {
+                arr.sort((a, b) => Number((a.step || a).start_time) - Number((b.step || b).start_time));
+            });
+            const orderedSteps = [];
+            function preOrder(item, depth) {
+                depthMap[String((item.step || item).index)] = depth;
+                orderedSteps.push(item);
+                (childrenMap[String((item.step || item).index)] || []).forEach(function(c) { preOrder(c, depth + 1); });
+            }
+            (childrenMap['-1'] || []).forEach(function(r) { preOrder(r, 0); });
+
+            // self-time 계산 (elapsed - 직계 자식 elapsed 합)
+            // elapsed 우선, 없으면 time 폴백 (단, time:-1 같은 sentinel 제외)
+            function stepElapsed(step) {
+                const el = Number(step.elapsed);
+                if (el > 0) return el;
+                const t = Number(step.time);
+                return t > 0 ? t : 0;
+            }
+            const selfTimeMap = {};
+            orderedSteps.forEach(s => {
+                const step = s.step || s;
+                const idx = String(step.index);
+                const el = stepElapsed(step);
+                const children = childrenMap[idx] || [];
+                const childSum = children.reduce((sum, c) => sum + stepElapsed(c.step || c), 0);
+                selfTimeMap[idx] = Math.max(0, el - childSum);
+            });
+            // 병목 하이라이트: self-time 최대 스텝 찾기
+            let maxSelfTime = 0;
+            orderedSteps.forEach(s => {
+                const idx = String((s.step || s).index);
+                if (selfTimeMap[idx] > maxSelfTime) maxSelfTime = selfTimeMap[idx];
+            });
+
+            // [2026-03-12] hook_jdbc_pstmt_classes 주석처리로 unknown SQL 더 이상 발생하지 않음
+            // unknown SQL 필터링 및 프로파일 보정 로직 비활성화
+            const filtered = orderedSteps;
+            /*
+            const filtered = orderedSteps.filter(s => {
+                // "unknown" SQL 엔트리 제거 (PreparedStatement 중간 hook)
+                const sType = (s.step || s).stepTypeName || '';
+                if ((sType === 'SQL3' || sType === 'SQL' || sType === 'SQL2') && (s.mainValue === 'unknown' || !s.mainValue)) return false;
+                return true;
+            });
+
+            // 프로파일 기반 SQL 보정: unknown 제외한 실제 SQL 건수/시간
+            const sqlTypes = ['SQL3', 'SQL', 'SQL2'];
+            const realSqls = filtered.filter(s => sqlTypes.includes((s.step || s).stepTypeName || ''));
+            const realSqlCount = realSqls.length;
+            const realSqlTime = realSqls.reduce((sum, s) => {
+                const step = s.step || s;
+                const el = Number(step.elapsed);
+                return sum + (el > 0 ? el : Math.max(0, Number(step.time) || 0));
+            }, 0);
+            if (point.sqlCount !== realSqlCount || point.sqlTime !== realSqlTime) {
+                point.sqlCount = realSqlCount;
+                point.sqlTime = realSqlTime;
+                // 헤더 정보 갱신
+                const sqlLabel = infoEl.querySelector('.label');
+                const sqlSpans = infoEl.querySelectorAll('span');
+                sqlSpans.forEach(sp => {
+                    if (sp.textContent.includes('건 /') && sp.previousElementSibling && sp.previousElementSibling.textContent === 'SQL:') {
+                        sp.parentElement.innerHTML = '<span class="label">SQL:</span> ' + realSqlCount + '건 / ' + realSqlTime + 'ms';
+                    }
+                });
+                // 왼쪽 목록도 갱신
+                const listItem = document.querySelectorAll('.profile-list-item')[idx];
+                if (listItem) {
+                    const sqlSpan = listItem.querySelector('.item-meta span:nth-child(3)');
+                    if (sqlSpan) sqlSpan.textContent = 'SQL:' + realSqlCount;
+                }
+            }
+            */
+
+            bodyEl.innerHTML = filtered.map(s => {
+                const step = s.step || s;
+                const typeName = step.stepTypeName || 'UNKNOWN';
+                const timeMs = Number(step.start_time) || 0;
+                const elapsed = (step.elapsed != null && Number(step.elapsed) >= 0) ? Number(step.elapsed)
+                    : (Number(step.time) >= 0 ? Number(step.time) : '');
+                const cpuTime = (step.cputime != null && Number(step.cputime) >= 0) ? Number(step.cputime) : '';
+                const mainVal = s.mainValue || '';
+                const depth = depthMap[String(step.index)] || 0;
+                const selfTime = selfTimeMap[String(step.index)] || 0;
+                const isBottleneck = maxSelfTime > 0 && selfTime === maxSelfTime;
+
+                // METHOD 분류 및 축약
+                let layerHtml = '<span class="step-layer"></span>';
+                let displayVal = mainVal;
+                let filterClass = '';
+                if (typeName === 'METHOD') {
+                    const cls = classifyMethod(mainVal);
+                    layerHtml = '<span class="step-layer"><span class="layer-badge ' + cls.layer + '">' + cls.layer + '</span></span>';
+                    displayVal = cls.shortName;
+                    filterClass = cls.filterClass;
+                }
+
+                // SQL 바인드 파라미터 표시
+                let paramHtml = '';
+                if ((typeName === 'SQL3' || typeName === 'SQL' || typeName === 'SQL2') && step.param) {
+                    paramHtml = '<div class="profile-step" style="border-bottom:none;padding-top:0;">'
+                        + '<span class="step-time"></span>'
+                        + '<span class="step-type"></span>'
+                        + '<span class="step-layer"></span>'
+                        + buildIndentGuides(depth)
+                        + '<span class="step-value" style="color:#e67e22;font-size:11px;">bind: [' + escHtml(step.param) + ']</span>'
+                        + '<span class="step-elapsed"></span></div>';
+                }
+
+                // indent를 TYPE/LAYER 뒤, value 앞에 배치 (TYPE 라벨 위치 고정)
+                // 병목(self-time 최대) 스텝에 bottleneck 클래스 추가
+                const cssClasses = 'profile-step'
+                    + (filterClass ? ' ' + filterClass : '')
+                    + (isBottleneck ? ' bottleneck' : '');
+                return '<div class="' + cssClasses + '" data-filter="' + filterClass + '">'
+                    + '<span class="step-time">' + (timeMs >= 0 ? timeMs + 'ms' : '') + '</span>'
+                    + '<span class="step-type ' + typeName + '">' + typeName + '</span>'
+                    + layerHtml
+                    + buildIndentGuides(depth)
+                    + '<span class="step-value">' + escHtml(displayVal) + '</span>'
+                    + (elapsed !== '' ? '<span class="step-elapsed">' + elapsed + 'ms</span>' : '<span class="step-elapsed"></span>')
+                    + (selfTime > 0 ? '<span class="step-self">' + selfTime + 'ms</span>' : '<span class="step-self"></span>')
+                    + (function() {
+                        if (typeName !== 'METHOD' || elapsed === '' || elapsed <= 0 || cpuTime === '') return '<span class="step-cpu"></span>';
+                        var isWait = cpuTime / elapsed < 0.3;
+                        return '<span class="step-cpu' + (isWait ? ' wait' : '') + '">cpu ' + cpuTime + 'ms' + (isWait ? ' \u23f3' : '') + '</span>';
+                    })()
+                    + '</div>' + paramHtml;
+            }).join('');
+
+            applyProfileFilter();
+        } catch (e) {
+            bodyEl.innerHTML = '<div class="profile-step"><span style="color:#e74c3c;">프로파일 로딩 실패: ' + e.message + '</span></div>';
+        }
+    }
+
+    function closeProfile() {
+        document.getElementById('profileOverlay').classList.remove('show');
+    }
+
+    const RATIO_COLORS = {
+        SQL3: '#2980b9', SQL: '#2980b9', SQL2: '#2980b9',
+        METHOD: '#27ae60', APICALL: '#e67e22', HASHED_MESSAGE: '#8e44ad'
+    };
+    const RATIO_LABELS = {
+        SQL3: 'SQL', SQL: 'SQL', SQL2: 'SQL',
+        METHOD: 'METHOD', APICALL: 'API CALL', HASHED_MESSAGE: 'MESSAGE'
+    };
+
+    function buildRatioBar(steps, totalElapsed) {
+        const section = document.getElementById('ratioSection');
+        if (!section) return;
+
+        // ── Scouter 프로파일 ratio bar 집계 규칙 (v2: Java 레이어 세분화) ──
+        // 1) I/O 타입(SQL, APICALL): 전체 elapsed 합산 (기존과 동일)
+        // 2) METHOD 타입: self-time(= elapsed - 직계 자식 elapsed 합) 계산 후 레이어별 분류
+        //    → 이중 계산 없이 CTRL/SVC/LOG/JDBC/ETC 등으로 분배
+        // 3) unknown SQL 제외 (기존과 동일)
+        // 4) 잔여 시간(total - 분류된 합)은 '기타'로 표시
+
+        // parent-child map → self-time 계산
+        const childrenMap = {};
+        steps.forEach(s => {
+            const step = s.step || s;
+            const parent = String(step.parent);
+            if (!childrenMap[parent]) childrenMap[parent] = [];
+            childrenMap[parent].push(s);
+        });
+        // elapsed 필드만 사용 (time 필드는 HASHED_MESSAGE에서 -1을 반환하여 계산 오염)
+        function getElapsed(step) {
+            const v = Number(step.elapsed);
+            return v > 0 ? v : 0;
+        }
+
+        const selfTimeMap = {};
+        steps.forEach(s => {
+            const step = s.step || s;
+            const idx = String(step.index);
+            const el = getElapsed(step);
+            const children = childrenMap[idx] || [];
+            const childSum = children.reduce((sum, c) => sum + getElapsed(c.step || c), 0);
+            selfTimeMap[idx] = Math.max(0, el - childSum);
+        });
+
+        const IO_TYPES = { SQL3: 'SQL', SQL: 'SQL', SQL2: 'SQL', APICALL: 'API CALL' };
+        const typeTime = {};
+        steps.forEach(s => {
+            const step = s.step || s;
+            const typeName = step.stepTypeName || '';
+            const mv = s.mainValue || '';
+            if (mv === 'unknown') return;
+            const idx = String(step.index);
+
+            // I/O 타입: 전체 elapsed
+            const ioLabel = IO_TYPES[typeName];
+            if (ioLabel) {
+                const elapsed = getElapsed(step);
+                if (elapsed > 0) typeTime[ioLabel] = (typeTime[ioLabel] || 0) + elapsed;
+                return;
+            }
+            // METHOD 타입: self-time을 레이어별 분류
+            if (typeName === 'METHOD') {
+                const cls = classifyMethod(mv);
+                const selfTime = selfTimeMap[idx] || 0;
+                if (selfTime > 0) typeTime[cls.layer] = (typeTime[cls.layer] || 0) + selfTime;
+            }
+        });
+
+        const measured = Object.values(typeTime).reduce((a, b) => a + b, 0);
+        if (measured <= 0) { section.style.display = 'none'; return; }
+        // 분류된 합계를 기준으로 비율 계산 (프레임워크 오버헤드는 제외)
+        const total = measured;
+
+        const entries = Object.entries(typeTime).sort((a, b) => b[1] - a[1]);
+        const colorMap = {
+            SQL: '#2980b9', 'API CALL': '#e67e22',
+            CTRL: '#3498db', SVC: '#27ae60', SEC: '#d35400',
+            LOG: '#95a5a6', DTO: '#9b59b6', JDBC: '#34495e',
+            EXC: '#e74c3c', ETC: '#bdc3c7',
+        };
+
+        let barHtml = '<div class="ratio-bar">';
+        entries.forEach(([label, ms]) => {
+            const pct = (ms / total * 100);
+            if (pct < 1) return;
+            const color = colorMap[label] || '#95a5a6';
+            barHtml += '<div class="ratio-bar-seg" style="width:' + pct.toFixed(1) + '%;background:' + color + ';">'
+                + (pct >= 8 ? label + ' ' + Math.round(pct) + '%' : (pct >= 4 ? Math.round(pct) + '%' : '')) + '</div>';
+        });
+        barHtml += '</div>';
+
+        let legendHtml = '<div class="ratio-legend">';
+        entries.forEach(([label, ms]) => {
+            const pct = (ms / total * 100);
+            const color = colorMap[label] || '#95a5a6';
+            legendHtml += '<div class="ratio-legend-item">'
+                + '<div class="ratio-legend-dot" style="background:' + color + '"></div>'
+                + label + ' ' + ms + 'ms (' + Math.round(pct) + '%)'
+                + '</div>';
+        });
+        legendHtml += '</div>';
+
+        section.innerHTML = barHtml + legendHtml;
+        section.style.display = 'block';
+    }
+
+    function escHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ==================== 프로파일 METHOD 분류 ====================
+    function classifyMethod(mainVal) {
+        // 메서드 시그니처에서 클래스명.메서드명 축약
+        // 형식: com.example...ClassName.methodName(Lparam;)Lreturn;
+        // 또는: OPEN-DBC ..., setAutoCommit, COMMIT, CLOSE 등 JDBC
+        let shortName = mainVal;
+        let layer = 'ETC';
+        let filterClass = '';
+
+        // JDBC 관련
+        if (/^(OPEN-DBC|COMMIT|CLOSE|setAutoCommit|getConnection)/.test(mainVal)) {
+            layer = 'JDBC';
+            shortName = mainVal.split(' ')[0]; // 'OPEN-DBC' 등
+            return { layer, shortName, filterClass };
+        }
+
+        // FQCN 파싱: 패키지.ClassName.method(시그니처)
+        const match = mainVal.match(/^([\w.$]+)\.([\w$]+)\(.*$/);
+        if (!match) return { layer, shortName, filterClass };
+
+        const fqcn = match[1]; // 패키지.클래스
+        const method = match[2]; // 메서드명
+        const parts = fqcn.split('.');
+        const className = parts[parts.length - 1];
+        shortName = className + '.' + method + '()';
+
+        // Builder 판정
+        if (className.includes('$Builder') || className.includes('Builder') || method === 'builder') {
+            filterClass = 'filter-builder';
+            layer = 'DTO';
+            // Builder 체인은 부모 클래스명 표시
+            const parentClass = className.replace(/\$.*Builder.*$/, '');
+            shortName = parentClass + '.' + method + '()';
+            return { layer, shortName, filterClass };
+        }
+
+        // 레이어 분류 (패키지 경로 기반)
+        if (fqcn.includes('.controller.')) {
+            layer = 'CTRL';
+        } else if (fqcn.includes('.service.')) {
+            layer = 'SVC';
+        } else if (fqcn.includes('.security.') || fqcn.includes('.SecurityUtil')) {
+            layer = 'SEC';
+        } else if (fqcn.includes('.log.') || fqcn.includes('.logging.') || fqcn.includes('LoggingAspect') || fqcn.includes('CallDepthHolder')) {
+            layer = 'LOG';
+            filterClass = 'filter-log';
+        } else if (fqcn.includes('.dto.') || fqcn.includes('DTO') || fqcn.includes('.entity.') || fqcn.includes('.model.') || fqcn.includes('.vo.')) {
+            layer = 'DTO';
+            filterClass = 'filter-dto';
+        } else if (fqcn.includes('.exception.')) {
+            layer = 'EXC';
+        } else if (fqcn.includes('.mapper.')) {
+            layer = 'SVC'; // Mapper는 Service 레이어로 취급
+        } else if (fqcn.includes('$$SpringCGLIB$$')) {
+            // CGLIB 프록시: 원본 클래스로 재분류
+            const origFqcn = fqcn.replace(/\$\$SpringCGLIB\$\$\d*/, '');
+            const reCls = classifyMethod(origFqcn + '.' + method + '()');
+            reCls.shortName = className.replace(/\$\$SpringCGLIB\$\$\d*/, '') + '.' + method + '() [proxy]';
+            return reCls;
+        }
+
+        return { layer, shortName, filterClass };
+    }
+
+    function buildIndentGuides(depth) {
+        if (depth <= 0) return '';
+        let html = '<span class="indent-guides">';
+        for (let i = 0; i < depth; i++) {
+            html += '<span class="indent-guide"></span>';
+        }
+        html += '</span>';
+        return html;
+    }
+
+    function applyProfileFilter() {
+        const hideBuilder = document.getElementById('chkHideBuilder').checked;
+        const hideLog = document.getElementById('chkHideLog').checked;
+        const hideDto = document.getElementById('chkHideDto').checked;
+
+        const steps = document.querySelectorAll('#profileBody .profile-step');
+        let total = 0, hidden = 0;
+        steps.forEach(el => {
+            total++;
+            const f = el.dataset.filter || '';
+            const hide = (hideBuilder && f === 'filter-builder')
+                || (hideLog && f === 'filter-log')
+                || (hideDto && f === 'filter-dto');
+            el.classList.toggle('filtered', hide);
+            if (hide) hidden++;
+        });
+
+        const countEl = document.getElementById('profileFilterCount');
+        if (countEl) countEl.textContent = hidden > 0 ? (total - hidden) + '/' + total + '건 표시 (' + hidden + '건 숨김)' : total + '건';
+    }
+
+    // ==================== 느린 API Top 5 ====================
+    let slowApiXlogs = []; // 클릭용 데이터 보관
+
+    function updateSlowApiTable(xlogs) {
+        const tbody = document.getElementById('slowApiBody');
+        if (!tbody) return;
+        if (!xlogs || xlogs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const sorted = [...xlogs].sort((a, b) => Number(b.elapsed) - Number(a.elapsed)).slice(0, 5);
+        slowApiXlogs = sorted;
+        tbody.innerHTML = sorted.map((x, i) => {
+            const endMs = Number(x.endTime);
+            const elapsed = Number(x.elapsed);
+            const startMs = endMs - elapsed;
+            const color = elapsed > 3000 ? '#e74c3c' : elapsed > 1000 ? '#f39c12' : '#333';
+            const txid = x.txid || '-';
+            const objLabel = x.objName ? '<span style="color:#888;font-size:11px;"> [' + x.objName + ']</span>' : '';
+            return '<tr><td>' + (i+1) + '</td><td>' + (x.serviceName || x.service || '-') + objLabel
+                + '</td><td><a href="#" style="color:#4a90d9;text-decoration:none;font-size:11px;" onclick="openSlowApiProfile(' + i + ');return false;">' + txid + '</a>'
+                + '</td><td style="color:' + color + ';font-weight:bold;">' + elapsed.toLocaleString()
+                + '</td><td>' + formatTimeMs(startMs)
+                + '</td><td>' + formatTimeMs(endMs) + '</td></tr>';
+        }).join('');
+    }
+
+    function openSlowApiProfile(idx) {
+        const x = slowApiXlogs[idx];
+        if (!x) return;
+        const point = {
+            x: Number(x.endTime),
+            y: Number(x.elapsed),
+            service: x.serviceName || x.service || '',
+            txid: x.txid,
+            sqlCount: Number(x.sqlCount) || 0,
+            sqlTime: Number(x.sqlTime) || 0,
+            apicallCount: Number(x.apicallCount) || 0,
+            apicallTime: Number(x.apicallTime) || 0,
+            objName: x.objName || ''
+        };
+        openProfileModal([point]);
+    }
+
+    function formatTimeMs(ms) {
+        const d = new Date(ms);
+        return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+    }
+
+    // ==================== Object별 통계 요약 ====================
+    function updateObjectSummary(xlogs) {
+        const tbody = document.getElementById('objectSummaryBody');
+        if (!tbody) return;
+        if (!xlogs || xlogs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const groups = {};
+        xlogs.forEach(x => {
+            const obj = x.objName || '(unknown)';
+            if (!groups[obj]) groups[obj] = { count: 0, totalElapsed: 0, maxElapsed: 0, sqlCount: 0, sqlTime: 0, errorCount: 0 };
+            const g = groups[obj];
+            const elapsed = Number(x.elapsed);
+            g.count++;
+            g.totalElapsed += elapsed;
+            if (elapsed > g.maxElapsed) g.maxElapsed = elapsed;
+            g.sqlCount += Number(x.sqlCount) || 0;
+            g.sqlTime += Number(x.sqlTime) || 0;
+            if (x.error && Number(x.error) !== 0) g.errorCount++;
+        });
+        renderObjectSummaryTable(tbody, groups);
+    }
+
+    function updateObjectSummaryFromPoints(points) {
+        const tbody = document.getElementById('objectSummaryBody');
+        if (!tbody) return;
+        if (!points || points.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const groups = {};
+        points.forEach(p => {
+            const obj = p.objName || '(unknown)';
+            if (!groups[obj]) groups[obj] = { count: 0, totalElapsed: 0, maxElapsed: 0, sqlCount: 0, sqlTime: 0, errorCount: 0 };
+            const g = groups[obj];
+            g.count++;
+            g.totalElapsed += p.y;
+            if (p.y > g.maxElapsed) g.maxElapsed = p.y;
+            g.sqlCount += p.sqlCount || 0;
+            g.sqlTime += p.sqlTime || 0;
+            if (p.error || p.color === 'rgba(0,0,0,0.7)') g.errorCount++;
+        });
+        renderObjectSummaryTable(tbody, groups);
+    }
+
+    function renderObjectSummaryTable(tbody, groups) {
+        const sorted = Object.entries(groups)
+            .map(([obj, g]) => ({ obj, ...g, avg: g.totalElapsed / g.count, errorRate: g.count > 0 ? (g.errorCount / g.count * 100) : 0 }))
+            .sort((a, b) => b.count - a.count);
+        tbody.innerHTML = sorted.map(s => {
+            const avgColor = s.avg > 3000 ? '#e74c3c' : s.avg > 1000 ? '#f39c12' : '#333';
+            return '<tr><td>' + escHtml(s.obj) + '</td>'
+                + '<td class="right">' + s.count.toLocaleString() + '</td>'
+                + '<td class="right" style="color:' + avgColor + ';font-weight:bold;">' + Math.round(s.avg).toLocaleString() + '</td>'
+                + '<td class="right">' + s.maxElapsed.toLocaleString() + '</td>'
+                + '<td class="right">' + (s.count > 0 ? (s.sqlCount / s.count).toFixed(1) : '0') + '</td>'
+                + '<td class="right">' + (s.count > 0 ? Math.round(s.sqlTime / s.count).toLocaleString() : '0') + '</td>'
+                + '<td class="right">' + s.errorCount + '</td>'
+                + '<td class="right">' + s.errorRate.toFixed(1) + '</td></tr>';
+        }).join('');
+    }
+
+    // ==================== 서비스별 통계 요약 ====================
+    function getN1Threshold() {
+        return Number(document.getElementById('n1Threshold').value) || 30;
+    }
+
+    function updateServiceSummary(xlogs) {
+        const tbody = document.getElementById('serviceSummaryBody');
+        if (!tbody) return;
+        if (!xlogs || xlogs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const groups = {};
+        xlogs.forEach(x => {
+            const svc = x.serviceName || x.service || '(unknown)';
+            if (!groups[svc]) groups[svc] = { count: 0, totalElapsed: 0, maxElapsed: 0, sqlCount: 0, sqlTime: 0, errorCount: 0 };
+            const g = groups[svc];
+            const elapsed = Number(x.elapsed);
+            g.count++;
+            g.totalElapsed += elapsed;
+            if (elapsed > g.maxElapsed) g.maxElapsed = elapsed;
+            g.sqlCount += Number(x.sqlCount) || 0;
+            g.sqlTime += Number(x.sqlTime) || 0;
+            if (x.error && Number(x.error) !== 0) g.errorCount++;
+        });
+        renderServiceSummaryTable(tbody, groups);
+    }
+
+    function updateServiceSummaryFromPoints(points) {
+        const tbody = document.getElementById('serviceSummaryBody');
+        if (!tbody) return;
+        if (!points || points.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const groups = {};
+        points.forEach(p => {
+            const svc = p.service || '(unknown)';
+            if (!groups[svc]) groups[svc] = { count: 0, totalElapsed: 0, maxElapsed: 0, sqlCount: 0, sqlTime: 0, errorCount: 0 };
+            const g = groups[svc];
+            g.count++;
+            g.totalElapsed += p.y;
+            if (p.y > g.maxElapsed) g.maxElapsed = p.y;
+            g.sqlCount += p.sqlCount || 0;
+            g.sqlTime += p.sqlTime || 0;
+            if (p.error || p.color === 'rgba(0,0,0,0.7)') g.errorCount++;
+        });
+        renderServiceSummaryTable(tbody, groups);
+    }
+
+    function renderServiceSummaryTable(tbody, groups) {
+        const sorted = Object.entries(groups)
+            .map(([svc, g]) => ({ svc, ...g, avg: g.totalElapsed / g.count, errorRate: g.count > 0 ? (g.errorCount / g.count * 100) : 0 }))
+            .sort((a, b) => b.avg - a.avg);
+        tbody.innerHTML = sorted.map(s => {
+            const avgColor = s.avg > 3000 ? '#e74c3c' : s.avg > 1000 ? '#f39c12' : '#333';
+            return '<tr><td>' + escHtml(s.svc) + '</td>'
+                + '<td class="right">' + s.count.toLocaleString() + '</td>'
+                + '<td class="right" style="color:' + avgColor + ';font-weight:bold;">' + Math.round(s.avg).toLocaleString() + '</td>'
+                + '<td class="right">' + s.maxElapsed.toLocaleString() + '</td>'
+                + '<td class="right">' + (s.count > 0 ? (s.sqlCount / s.count).toFixed(1) : '0') + '</td>'
+                + '<td class="right">' + (s.count > 0 ? Math.round(s.sqlTime / s.count).toLocaleString() : '0') + '</td>'
+                + '<td class="right">' + s.errorCount + '</td>'
+                + '<td class="right">' + s.errorRate.toFixed(1) + '</td></tr>';
+        }).join('');
+    }
+
+    // ==================== 에러 분석 ====================
+    let errorAnalysisXlogs = [];
+
+    function updateErrorAnalysis(xlogs) {
+        const tbody = document.getElementById('errorAnalysisBody');
+        if (!tbody) return;
+        if (!xlogs || xlogs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const errors = xlogs.filter(x => x.error && Number(x.error) !== 0);
+        if (errors.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#27ae60;">에러 없음</td></tr>';
+            return;
+        }
+        errorAnalysisXlogs = errors;
+        const n1Threshold = getN1Threshold();
+        tbody.innerHTML = errors.map((x, i) => {
+            const elapsed = Number(x.elapsed);
+            const sqlCount = Number(x.sqlCount) || 0;
+            const sqlTime = Number(x.sqlTime) || 0;
+            const tags = buildTags(sqlCount, sqlTime, elapsed, n1Threshold);
+            const endMs = Number(x.endTime);
+            const color = elapsed > 3000 ? '#e74c3c' : elapsed > 1000 ? '#f39c12' : '#333';
+            const txid = x.txid || '-';
+            return '<tr><td>' + formatTimeMs(endMs)
+                + '</td><td>' + escHtml(x.objName || '-')
+                + '</td><td>' + escHtml(x.serviceName || x.service || '-')
+                + '</td><td><a href="#" style="color:#4a90d9;text-decoration:none;font-size:11px;" onclick="openErrorProfile(' + i + ');return false;">' + txid + '</a>'
+                + '</td><td style="color:' + color + ';font-weight:bold;">' + elapsed.toLocaleString()
+                + '</td><td style="max-width:300px;word-break:break-all;">' + escHtml(x.errorMessage || '-')
+                + '</td><td>' + tags + '</td></tr>';
+        }).join('');
+    }
+
+    function updateErrorAnalysisFromPoints(points) {
+        const tbody = document.getElementById('errorAnalysisBody');
+        if (!tbody) return;
+        if (!points || points.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const errors = points.filter(p => p.error || p.color === 'rgba(0,0,0,0.7)');
+        if (errors.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#27ae60;">에러 없음</td></tr>';
+            return;
+        }
+        errorAnalysisXlogs = errors.map(p => ({
+            endTime: p.x, elapsed: p.y, serviceName: p.service, txid: p.txid,
+            sqlCount: p.sqlCount, sqlTime: p.sqlTime || 0,
+            apicallCount: p.apicallCount, apicallTime: p.apicallTime || 0,
+            objName: p.objName, errorMessage: p.errorMessage || ''
+        }));
+        const n1Threshold = getN1Threshold();
+        tbody.innerHTML = errors.map((p, i) => {
+            const sqlCount = p.sqlCount || 0;
+            const sqlTime = p.sqlTime || 0;
+            const tags = buildTags(sqlCount, sqlTime, p.y, n1Threshold);
+            const color = p.y > 3000 ? '#e74c3c' : p.y > 1000 ? '#f39c12' : '#333';
+            const txid = p.txid || '-';
+            return '<tr><td>' + formatTimeMs(p.x)
+                + '</td><td>' + escHtml(p.objName || '-')
+                + '</td><td>' + escHtml(p.service || '-')
+                + '</td><td><a href="#" style="color:#4a90d9;text-decoration:none;font-size:11px;" onclick="openErrorProfile(' + i + ');return false;">' + txid + '</a>'
+                + '</td><td style="color:' + color + ';font-weight:bold;">' + p.y.toLocaleString()
+                + '</td><td style="max-width:300px;word-break:break-all;">' + escHtml(p.errorMessage || '-')
+                + '</td><td>' + tags + '</td></tr>';
+        }).join('');
+    }
+
+    function openErrorProfile(idx) {
+        const x = errorAnalysisXlogs[idx];
+        if (!x) return;
+        const point = {
+            x: Number(x.endTime), y: Number(x.elapsed),
+            service: x.serviceName || x.service || '',
+            txid: x.txid, sqlCount: Number(x.sqlCount) || 0,
+            sqlTime: Number(x.sqlTime) || 0,
+            apicallCount: Number(x.apicallCount) || 0,
+            apicallTime: Number(x.apicallTime) || 0,
+            objName: x.objName || ''
+        };
+        openProfileModal([point]);
+    }
+
+    function searchByTxid() {
+        const input = document.getElementById('txidSearchInput');
+        const resultEl = document.getElementById('txidSearchResult');
+        if (!input || !resultEl) return;
+        const txid = input.value.trim();
+        if (!txid) { resultEl.innerHTML = '<span style="color:#e74c3c;">TXID를 입력하세요.</span>'; return; }
+        const found = xlogDataPoints.filter(p => p.txid === txid);
+        if (found.length === 0) {
+            resultEl.innerHTML = '<span style="color:#e74c3c;">해당 TXID를 찾을 수 없습니다: ' + escHtml(txid) + '</span>';
+            return;
+        }
+        resultEl.innerHTML = '<span style="color:#27ae60;">' + found.length + '건 발견 — 프로파일 모달을 엽니다.</span>';
+        openProfileModal(found);
+    }
+
+    function buildTags(sqlCount, sqlTime, elapsed, n1Threshold) {
+        let tags = '';
+        if (sqlCount >= n1Threshold) tags += '<span class="tag-n1">N+1 의심</span>';
+        if (elapsed >= 3000 && sqlTime > 0 && (sqlTime / elapsed) >= 0.98) tags += '<span class="tag-sql-bottleneck">SQL병목</span>';
+        return tags || '-';
+    }
+
+    // ==================== 알림 이력 ====================
+    async function loadAlerts(selectedObjType) {
+        try {
+            const sid = await getServerId();
+            const data = await apiFetch('/scouter/v1/alert/realTime/0/0?serverId=' + sid);
+            const alertArr = (data.result && data.result.alerts) ? data.result.alerts : (Array.isArray(data.result) ? data.result : []);
+            // host 계열(linux/windows)이면 host만, 아니면 java 계열만 필터
+            const isHostType = (selectedObjType === 'linux' || selectedObjType === 'windows' || selectedObjType === 'host');
+            allAlerts = alertArr
+                .filter(a => {
+                    const aIsHost = (a.objType === 'linux' || a.objType === 'windows');
+                    return isHostType ? aIsHost : !aIsHost;
+                })
+                .map(a => ({
+                    level: (a.level || 'INFO').toUpperCase(),
+                    title: a.title || '',
+                    message: a.message || a.title || '',
+                    time: Number(a.time) || 0,
+                    objName: a.objName || ''
+                }));
+        } catch (e) { allAlerts = []; }
+
+        const counts = { ALL: allAlerts.length, FATAL: 0, ERROR: 0, WARN: 0, INFO: 0 };
+        allAlerts.forEach(a => { if (counts[a.level] !== undefined) counts[a.level]++; });
+        Object.keys(counts).forEach(k => {
+            const el = document.getElementById('alertCount' + k);
+            if (el) el.textContent = counts[k];
+        });
+        filterAlerts('ALL', document.querySelector('.alert-filter-btn.active'));
+    }
+
+    function filterAlerts(level, btn) {
+        document.querySelectorAll('.alert-filter-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        const filtered = level === 'ALL' ? allAlerts : allAlerts.filter(a => a.level === level);
+        const listEl = document.getElementById('alertList');
+        if (!listEl) return;
+        if (filtered.length === 0) {
+            listEl.innerHTML = '<div class="alert-item" style="color:#999;">알림 없음</div>';
+            return;
+        }
+        listEl.innerHTML = filtered.map(a => {
+            const t = a.time ? new Date(a.time) : null;
+            const timeStr = t ? pad(t.getMonth()+1) + '/' + pad(t.getDate()) + ' ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds()) : '';
+            return '<div class="alert-item"><span class="alert-badge ' + a.level + '">' + a.level
+                + '</span><span class="alert-time">' + timeStr + '</span><span class="alert-msg">' + (a.objName ? '[' + a.objName + '] ' : '') + a.message + '</span></div>';
+        }).join('');
+    }
+
+    // ==================== 차트 ====================
+    const CHART_INSTANCE_COLORS = ['#3498db', '#2ecc71', '#e74c3c', '#9b59b6', '#1abc9c', '#e67e22', '#34495e', '#f39c12'];
+
+    function drawChart(canvasId, label, data, color, threshold, transform, aggregate) {
+        if (charts[canvasId]) charts[canvasId].destroy();
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        // 멀티 인스턴스 판별
+        const instNames = data.byObj ? Object.keys(data.byObj).sort() : [];
+        const isMulti = instNames.length > 1;
+
+        let datasets, allRawTimes;
+
+        if (isMulti) {
+            // 인스턴스별 개별 라인
+            datasets = instNames.map((name, idx) => {
+                const inst = data.byObj[name];
+                const c = CHART_INSTANCE_COLORS[idx % CHART_INSTANCE_COLORS.length];
+                const vals = transform ? inst.values.map(transform) : inst.values;
+                return {
+                    label: name.split('/').pop(),
+                    data: inst.times.map((t, i) => ({ x: t, y: vals[i] })),
+                    borderColor: c, backgroundColor: c + '20',
+                    fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2
+                };
+            });
+            // 합산 메트릭이면 합계 라인 추가 (기준 인스턴스 시간축 + 최근접 매칭 합산)
+            if (aggregate === 'sum') {
+                // 각 인스턴스의 정렬된 시간/값 배열 준비
+                var instSeries = instNames.map(function(name) {
+                    var inst = data.byObj[name];
+                    var vals = transform ? inst.values.map(transform) : inst.values;
+                    // 시간순 정렬 보장
+                    var pairs = inst.times.map(function(t, i) { return { t: t, v: vals[i] }; });
+                    pairs.sort(function(a, b) { return a.t - b.t; });
+                    return { times: pairs.map(function(p) { return p.t; }), values: pairs.map(function(p) { return p.v; }) };
+                });
+                // 데이터 포인트가 가장 많은 인스턴스를 기준축으로 선택
+                var refIdx = 0;
+                for (var si = 1; si < instSeries.length; si++) {
+                    if (instSeries[si].times.length > instSeries[refIdx].times.length) refIdx = si;
+                }
+                var refTimes = instSeries[refIdx].times;
+                // 기준축 각 시간에서 다른 인스턴스의 최근접 값 합산
+                var totalData = refTimes.map(function(t, ri) {
+                    var sum = instSeries[refIdx].values[ri]; // 기준 인스턴스 값
+                    for (var si = 0; si < instSeries.length; si++) {
+                        if (si === refIdx) continue;
+                        var s = instSeries[si];
+                        if (s.times.length === 0) continue;
+                        // 이진 탐색으로 최근접 찾기
+                        var lo = 0, hi = s.times.length - 1;
+                        while (lo < hi) {
+                            var mid = (lo + hi) >> 1;
+                            if (s.times[mid] < t) lo = mid + 1; else hi = mid;
+                        }
+                        // lo와 lo-1 중 더 가까운 쪽
+                        var best = lo;
+                        if (lo > 0 && Math.abs(s.times[lo - 1] - t) < Math.abs(s.times[lo] - t)) best = lo - 1;
+                        sum += s.values[best];
+                    }
+                    return { x: t, y: sum };
+                });
+                datasets.push({
+                    label: '합계',
+                    data: totalData,
+                    borderColor: '#f0b429', backgroundColor: 'transparent',
+                    fill: false, tension: 0.3, pointRadius: 0,
+                    borderWidth: 2.5, borderDash: [6, 2, 2, 2]
+                });
+            }
+            allRawTimes = data.times;
+        } else {
+            // 단일 인스턴스 (기존 방식)
+            const values = transform ? data.values.map(transform) : data.values;
+            datasets = [{
+                label, data: values.map((v, i) => ({ x: data.times[i], y: v })),
+                borderColor: color, backgroundColor: color + '20',
+                fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2
+            }];
+            allRawTimes = data.times;
+        }
+
+        const annotations = {};
+        if (threshold) {
+            const allValues = transform ? data.values.map(transform) : data.values;
+            let tv = threshold.value;
+            if (threshold.isPercent && allValues.length > 0) tv = max(allValues) * (threshold.value / 100);
+            annotations.thresholdLine = {
+                type: 'line', yMin: tv, yMax: tv,
+                borderColor: threshold.color || '#e74c3c', borderWidth: 2, borderDash: [6, 4],
+                label: { display: true, content: threshold.label, position: 'end', backgroundColor: threshold.color || '#e74c3c', font: { size: 10 } }
+            };
+        }
+
+        charts[canvasId] = new Chart(canvas, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: isMulti }, annotation: { annotations },
+                    tooltip: {
+                        callbacks: {
+                            title: function(items) {
+                                if (!items.length) return '';
+                                const raw = items[0].raw;
+                                const t = raw && raw.x != null ? raw.x : (allRawTimes[items[0].dataIndex] || 0);
+                                const d = new Date(t);
+                                return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        ticks: {
+                            maxTicksLimit: 12, font: { size: 11 },
+                            callback: function(v) { const d = new Date(v); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+                        }
+                    },
+                    y: { beginAtZero: true, ticks: { font: { size: 11 } } }
+                }
+            }
+        });
+    }
+
+    // ==================== 유틸 ====================
+    function avg(a) { return a.length ? a.reduce((s,v) => s+v, 0) / a.length : 0; }
+    function max(a) { if (!a.length) return 0; let v = a[0]; for (let i = 1; i < a.length; i++) if (a[i] > v) v = a[i]; return v; }
+    function min(a) { if (!a.length) return 0; let v = a[0]; for (let i = 1; i < a.length; i++) if (a[i] < v) v = a[i]; return v; }
+    function sum(a) { return a.reduce((s,v) => s+v, 0); }
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function updateSummary(id, v, d) { const el = document.getElementById(id); if (el) el.textContent = Number(v).toFixed(d); }
+    function showStats(id, values, decimals, unit) {
+        const el = document.getElementById(id);
+        if (!el || !values || values.length === 0) { if (el) el.textContent = 'No Data'; return; }
+        const u = unit || '';
+        el.textContent = 'min: ' + min(values).toFixed(decimals) + u + ' / avg: ' + avg(values).toFixed(decimals) + u + ' / max: ' + max(values).toFixed(decimals) + u;
+    }
+
+    // ==================== 엑셀 빌더 함수 ====================
+    function buildXLogSheet(wb, xlogPoints) {
+        const xlogSorted = [...xlogPoints].sort((a, b) => a.x - b.x);
+        const n1Threshold = getN1Threshold();
+        const xlogHeader = ['시간', '인스턴스', '서비스명', '응답시간(ms)', 'txid', 'SQL건수', 'SQL시간(ms)', 'API호출수', 'API시간(ms)', '에러', '에러메시지', '태그'];
+        const xlogRows = xlogSorted.map(p => {
+            const isError = p.error || p.color === 'rgba(0,0,0,0.7)';
+            const sqlCount = p.sqlCount || 0;
+            const sqlTime = p.sqlTime || 0;
+            const tags = [];
+            if (sqlCount >= n1Threshold) tags.push('N+1 의심');
+            if (p.y >= 3000 && sqlTime > 0 && (sqlTime / p.y) >= 0.98) tags.push('SQL병목');
+            return [
+                formatTimeMs(p.x),
+                p.objName || '',
+                p.service || '',
+                p.y,
+                p.txid || '',
+                sqlCount,
+                sqlTime,
+                p.apicallCount || 0,
+                p.apicallTime || 0,
+                isError ? 'Y' : '',
+                p.errorMessage || '',
+                tags.join(', ')
+            ];
+        });
+        const xlogData = [xlogHeader, ...xlogRows];
+        const wsXlog = XLSX.utils.aoa_to_sheet(xlogData);
+        wsXlog['!cols'] = [
+            { wch: 14 }, { wch: 18 }, { wch: 40 }, { wch: 12 },
+            { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 5 }, { wch: 40 }, { wch: 15 }
+        ];
+        XLSX.utils.book_append_sheet(wb, wsXlog, 'XLog');
+
+        // txid → XLog 시트 행번호 매핑
+        const txidRowMap = {};
+        xlogSorted.forEach((p, i) => {
+            if (p.txid) {
+                if (!txidRowMap[p.txid]) txidRowMap[p.txid] = [];
+                txidRowMap[p.txid].push(i + 2);
+            }
+        });
+        return txidRowMap;
+    }
+
+    function buildCounterSheet(wb, sheetName, counterResults, counterKeys, counterLabels) {
+        // 멀티 인스턴스 판별
+        const instanceNames = new Set();
+        counterResults.forEach(cr => {
+            if (cr.byObj) Object.keys(cr.byObj).forEach(n => instanceNames.add(n));
+        });
+        const instList = [...instanceNames].sort();
+        const isMulti = instList.length > 1;
+
+        if (isMulti) {
+            // 인스턴스별 독립 시간+값 컬럼 그룹
+            const instData = instList.map(instName => {
+                const valueMaps = counterResults.map(cr => {
+                    const inst = (cr.byObj && cr.byObj[instName]) ? cr.byObj[instName] : { times: [], values: [] };
+                    const m = {};
+                    inst.times.forEach((t, i) => { m[t] = inst.values[i]; });
+                    return m;
+                });
+                const times = new Set();
+                counterResults.forEach(cr => {
+                    if (cr.byObj && cr.byObj[instName]) cr.byObj[instName].times.forEach(t => times.add(t));
+                });
+                return { instName, times: [...times].sort((a, b) => a - b), valueMaps };
+            });
+
+            // 최대 행 수
+            const maxRows = instData.reduce((mx, d) => d.times.length > mx ? d.times.length : mx, 0);
+            if (maxRows === 0) return;
+
+            // 헤더: [inst1 시간, inst1 TPS, inst1 Active, ... | inst2 시간, ...]
+            const header = [];
+            instList.forEach(name => {
+                const shortName = name.split('/').pop();
+                header.push(shortName + ' 시간');
+                counterLabels.forEach(lbl => header.push(shortName + ' ' + lbl));
+            });
+
+            const rows = [];
+            for (let r = 0; r < maxRows; r++) {
+                const row = [];
+                instData.forEach(d => {
+                    if (r < d.times.length) {
+                        const t = d.times[r];
+                        row.push(formatTimeMs(t));
+                        d.valueMaps.forEach(m => row.push(m[t] != null ? Number(m[t]) : ''));
+                    } else {
+                        row.push('');
+                        counterLabels.forEach(() => row.push(''));
+                    }
+                });
+                rows.push(row);
+            }
+
+            const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+            const cols = header.map(() => ({ wch: 14 }));
+            ws['!cols'] = cols;
+            XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        } else {
+            // 단일 인스턴스 (기존 방식)
+            const allTimes = new Set();
+            counterResults.forEach(cr => cr.times.forEach(t => allTimes.add(t)));
+            const sortedTimes = [...allTimes].sort((a, b) => a - b);
+            if (sortedTimes.length === 0) return;
+
+            const valueMaps = counterResults.map(cr => {
+                const m = {};
+                cr.times.forEach((t, i) => { m[t] = cr.values[i]; });
+                return m;
+            });
+
+            const header = ['시간', ...counterLabels];
+            const rows = sortedTimes.map(t => {
+                const row = [formatTimeMs(t)];
+                valueMaps.forEach(m => {
+                    row.push(m[t] != null ? Number(m[t]) : '');
+                });
+                return row;
+            });
+
+            const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+            const cols = [{ wch: 14 }];
+            counterLabels.forEach(() => cols.push({ wch: 14 }));
+            ws['!cols'] = cols;
+            XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        }
+    }
+
+    function buildCounterSheetByInstance(wb, sheetPrefix, counterResults, counterKeys, counterLabels) {
+        // 모든 카운터에서 인스턴스 목록 수집
+        const instanceNames = new Set();
+        counterResults.forEach(cr => {
+            if (cr.byObj) Object.keys(cr.byObj).forEach(n => instanceNames.add(n));
+        });
+        if (instanceNames.size <= 1) return; // 단일 인스턴스면 생략 (기존 시트와 동일)
+
+        [...instanceNames].sort().forEach(instName => {
+            // 해당 인스턴스의 카운터 데이터만 추출
+            const instResults = counterResults.map(cr => {
+                return (cr.byObj && cr.byObj[instName]) ? cr.byObj[instName] : { times: [], values: [] };
+            });
+            const safeSheetName = (sheetPrefix + '_' + instName).substring(0, 31); // 엑셀 시트명 31자 제한
+            buildCounterSheet(wb, safeSheetName, instResults, counterKeys, counterLabels);
+        });
+    }
+
+    function buildIntegrationSheet(wb, xlogPoints, counterResults, counters, txidRowMap) {
+        const cpuIdx = counters.findIndex(c => c.key === 'ProcCpu');
+        const heapIdx = counters.findIndex(c => c.key === 'HeapUsed');
+        const procCpuData = cpuIdx >= 0 ? counterResults[cpuIdx] : { times: [], values: [] };
+        const heapData = heapIdx >= 0 ? counterResults[heapIdx] : { times: [], values: [] };
+
+        const timePoints = procCpuData.times.length > 0 ? procCpuData.times
+            : (heapData.times.length > 0 ? heapData.times : []);
+        if (timePoints.length === 0) return;
+
+        const cpuMap = {};
+        procCpuData.times.forEach((t, i) => { cpuMap[t] = procCpuData.values[i]; });
+        const heapMap = {};
+        heapData.times.forEach((t, i) => { heapMap[t] = heapData.values[i]; });
+
+        // 근접 시간 매칭 함수 (±tolerance 이내에서 가장 가까운 값)
+        function findNearest(map, targetTime, tolerance) {
+            if (map[targetTime] != null) return map[targetTime];
+            let nearest = null, minDiff = tolerance + 1;
+            for (const k in map) {
+                const diff = Math.abs(Number(k) - targetTime);
+                if (diff <= tolerance && diff < minDiff) {
+                    minDiff = diff;
+                    nearest = map[k];
+                }
+            }
+            return nearest;
+        }
+        const TIME_TOLERANCE = 10000; // ±10초
+
+        const xlogSorted = [...xlogPoints].sort((a, b) => a.x - b.x);
+        const MATCH_WINDOW = 10000;
+        const intHeader = ['시간', 'ProcCpu(%)', 'HeapUsed(MB)', '트랜잭션수', '평균응답(ms)', '최대응답(ms)', '에러수', 'txid (±10초 이내)'];
+        const intRows = [];
+
+        for (let i = 0; i < timePoints.length; i++) {
+            const t = timePoints[i];
+            const cpuRaw = findNearest(cpuMap, t, TIME_TOLERANCE);
+            const heapRaw = findNearest(heapMap, t, TIME_TOLERANCE);
+            const cpuVal = cpuRaw != null ? Number(cpuRaw).toFixed(1) : '';
+            const heapVal = heapRaw != null ? Number(heapRaw).toFixed(1) : '';
+
+            const matched = xlogSorted.filter(p => Math.abs(p.x - t) <= MATCH_WINDOW);
+            const txCount = matched.length;
+            const avgResp = txCount > 0 ? Math.round(matched.reduce((s, p) => s + p.y, 0) / txCount) : '';
+            const maxResp = txCount > 0 ? max(matched.map(p => p.y)) : '';
+            const errCount = matched.filter(p => p.color === 'rgba(0,0,0,0.7)').length;
+            const uniqueTxids = [...new Set(matched.map(p => p.txid).filter(Boolean))];
+            const MAX_TXIDS = 20;
+            const txidStr = uniqueTxids.length > MAX_TXIDS
+                ? uniqueTxids.slice(0, MAX_TXIDS).join(', ') + ' ... (+' + (uniqueTxids.length - MAX_TXIDS) + '건)'
+                : uniqueTxids.join(', ');
+
+            intRows.push([
+                formatTimeMs(t), cpuVal, heapVal,
+                txCount || '', avgResp, maxResp, errCount || '',
+                txidStr
+            ]);
+        }
+
+        const wsInt = XLSX.utils.aoa_to_sheet([intHeader, ...intRows]);
+        wsInt['!cols'] = [
+            { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 10 },
+            { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 60 }
+        ];
+
+        // txid 하이퍼링크
+        if (txidRowMap) {
+            for (let r = 0; r < intRows.length; r++) {
+                const txidCell = intRows[r][7];
+                if (!txidCell) continue;
+                const cellRef = XLSX.utils.encode_cell({ r: r + 1, c: 7 });
+                const txids = txidCell.split(', ').filter(Boolean);
+                let targetRow = null;
+                for (const txid of txids) {
+                    if (txidRowMap[txid] && txidRowMap[txid].length > 0) {
+                        targetRow = txidRowMap[txid][0];
+                        break;
+                    }
+                }
+                if (targetRow && wsInt[cellRef]) {
+                    wsInt[cellRef].l = { Target: '#XLog!A' + targetRow, Tooltip: 'XLog 시트로 이동' };
+                }
+            }
+        }
+
+        XLSX.utils.book_append_sheet(wb, wsInt, '통합');
+    }
+
+    function buildIntegrationSheetByInstance(wb, xlogPoints, counterResults, counters, txidRowMap) {
+        const cpuIdx = counters.findIndex(c => c.key === 'ProcCpu');
+        const heapIdx = counters.findIndex(c => c.key === 'HeapUsed');
+        if (cpuIdx < 0 && heapIdx < 0) return;
+
+        // 인스턴스 목록 수집
+        const instanceNames = new Set();
+        counterResults.forEach(cr => {
+            if (cr.byObj) Object.keys(cr.byObj).forEach(n => instanceNames.add(n));
+        });
+        if (instanceNames.size <= 1) return;
+
+        const TIME_TOLERANCE = 10000;
+        const MATCH_WINDOW = 10000;
+
+        function findNearest(map, targetTime, tolerance) {
+            if (map[targetTime] != null) return map[targetTime];
+            let nearest = null, minDiff = tolerance + 1;
+            for (const k in map) {
+                const diff = Math.abs(Number(k) - targetTime);
+                if (diff <= tolerance && diff < minDiff) {
+                    minDiff = diff;
+                    nearest = map[k];
+                }
+            }
+            return nearest;
+        }
+
+        [...instanceNames].sort().forEach(instName => {
+            const procCpuData = (cpuIdx >= 0 && counterResults[cpuIdx].byObj && counterResults[cpuIdx].byObj[instName])
+                ? counterResults[cpuIdx].byObj[instName] : { times: [], values: [] };
+            const heapData = (heapIdx >= 0 && counterResults[heapIdx].byObj && counterResults[heapIdx].byObj[instName])
+                ? counterResults[heapIdx].byObj[instName] : { times: [], values: [] };
+
+            const timePoints = procCpuData.times.length > 0 ? procCpuData.times
+                : (heapData.times.length > 0 ? heapData.times : []);
+            if (timePoints.length === 0) return;
+
+            const cpuMap = {};
+            procCpuData.times.forEach((t, i) => { cpuMap[t] = procCpuData.values[i]; });
+            const heapMap = {};
+            heapData.times.forEach((t, i) => { heapMap[t] = heapData.values[i]; });
+
+            // 해당 인스턴스의 XLog만 필터
+            const instXlog = [...xlogPoints].filter(p => {
+                const pName = (p.objName || '').split('/').pop();
+                return pName === instName;
+            }).sort((a, b) => a.x - b.x);
+
+            const intHeader = ['시간', 'ProcCpu(%)', 'HeapUsed(MB)', '트랜잭션수', '평균응답(ms)', '최대응답(ms)', '에러수', 'txid (±10초 이내)'];
+            const intRows = [];
+
+            for (let i = 0; i < timePoints.length; i++) {
+                const t = timePoints[i];
+                const cpuRaw = findNearest(cpuMap, t, TIME_TOLERANCE);
+                const heapRaw = findNearest(heapMap, t, TIME_TOLERANCE);
+                const cpuVal = cpuRaw != null ? Number(cpuRaw).toFixed(1) : '';
+                const heapVal = heapRaw != null ? Number(heapRaw).toFixed(1) : '';
+
+                const matched = instXlog.filter(p => Math.abs(p.x - t) <= MATCH_WINDOW);
+                const txCount = matched.length;
+                const avgResp = txCount > 0 ? Math.round(matched.reduce((s, p) => s + p.y, 0) / txCount) : '';
+                const maxResp = txCount > 0 ? max(matched.map(p => p.y)) : '';
+                const errCount = matched.filter(p => p.color === 'rgba(0,0,0,0.7)').length;
+                const uniqueTxids = [...new Set(matched.map(p => p.txid).filter(Boolean))];
+                const MAX_TXIDS = 20;
+                const txidStr = uniqueTxids.length > MAX_TXIDS
+                    ? uniqueTxids.slice(0, MAX_TXIDS).join(', ') + ' ... (+' + (uniqueTxids.length - MAX_TXIDS) + '건)'
+                    : uniqueTxids.join(', ');
+
+                intRows.push([
+                    formatTimeMs(t), cpuVal, heapVal,
+                    txCount || '', avgResp, maxResp, errCount || '',
+                    txidStr
+                ]);
+            }
+
+            const wsInt = XLSX.utils.aoa_to_sheet([intHeader, ...intRows]);
+            wsInt['!cols'] = [
+                { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 10 },
+                { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 60 }
+            ];
+
+            // txid 하이퍼링크
+            if (txidRowMap) {
+                for (let r = 0; r < intRows.length; r++) {
+                    const txidCell = intRows[r][7];
+                    if (!txidCell) continue;
+                    const cellRef = XLSX.utils.encode_cell({ r: r + 1, c: 7 });
+                    const txids = txidCell.split(', ').filter(Boolean);
+                    let targetRow = null;
+                    for (const txid of txids) {
+                        if (txidRowMap[txid] && txidRowMap[txid].length > 0) {
+                            targetRow = txidRowMap[txid][0];
+                            break;
+                        }
+                    }
+                    if (targetRow && wsInt[cellRef]) {
+                        wsInt[cellRef].l = { Target: '#XLog!A' + targetRow, Tooltip: 'XLog 시트로 이동' };
+                    }
+                }
+            }
+
+            const safeSheetName = ('통합_' + instName).substring(0, 31);
+            XLSX.utils.book_append_sheet(wb, wsInt, safeSheetName);
+        });
+    }
+
+    // ==================== 유틸리티: 백분위수 / TPS 계산 ====================
+    function percentile(sortedArr, p) {
+        if (sortedArr.length === 0) return 0;
+        const idx = (p / 100) * (sortedArr.length - 1);
+        const lo = Math.floor(idx), hi = Math.ceil(idx);
+        if (lo === hi) return sortedArr[lo];
+        return sortedArr[lo] + (sortedArr[hi] - sortedArr[lo]) * (idx - lo);
+    }
+
+    function calcTPS(count, startMs, endMs) {
+        const sec = (endMs - startMs) / 1000;
+        return sec > 0 ? (count / sec) : 0;
+    }
+
+    // ==================== Scouter 요약 시트 ====================
+    function buildScouterSummarySheet(wb, xlogPoints, javaCounterResults, javaCounters) {
+        if (!xlogPoints || xlogPoints.length === 0) return;
+        const n1Threshold = getN1Threshold();
+        const rows = [];
+
+        const allElapsed = xlogPoints.map(p => p.y).sort((a, b) => a - b);
+        const totalCount = xlogPoints.length;
+        const minTime = min(xlogPoints.map(p => p.x));
+        const maxTime = max(xlogPoints.map(p => p.x));
+        const errorCount = xlogPoints.filter(p => p.error || p.color === 'rgba(0,0,0,0.7)').length;
+        const n1Count = xlogPoints.filter(p => (p.sqlCount || 0) >= n1Threshold).length;
+        const sqlBottleneckCount = xlogPoints.filter(p => p.y >= 3000 && (p.sqlTime || 0) > 0 && ((p.sqlTime || 0) / p.y) >= 0.98).length;
+
+        // 카운터 인덱스 조회
+        const cpuIdx = javaCounters ? javaCounters.findIndex(c => c.key === 'ProcCpu') : -1;
+        const heapIdx = javaCounters ? javaCounters.findIndex(c => c.key === 'HeapUsed') : -1;
+        const gcCountIdx = javaCounters ? javaCounters.findIndex(c => c.key === 'GcCount') : -1;
+        const gcTimeIdx = javaCounters ? javaCounters.findIndex(c => c.key === 'GcTime') : -1;
+
+        // 인스턴스별 카운터 통계 헬퍼
+        function getInstanceCounterStats(instName) {
+            const stats = { avgCpu: '', maxCpu: '', avgHeap: '', maxHeap: '', gcTotalCount: '', gcTotalTime: '' };
+            if (!javaCounterResults || !javaCounters) return stats;
+
+            // 인스턴스명 매칭: objName은 XLog에서는 원래 형태, byObj에서는 split('/').pop() 결과
+            const shortName = instName.split('/').pop();
+
+            if (cpuIdx >= 0 && javaCounterResults[cpuIdx] && javaCounterResults[cpuIdx].byObj) {
+                const d = javaCounterResults[cpuIdx].byObj[shortName];
+                if (d && d.values.length > 0) {
+                    stats.avgCpu = Number((d.values.reduce((s, v) => s + v, 0) / d.values.length).toFixed(1));
+                    stats.maxCpu = Number(max(d.values).toFixed(1));
+                }
+            }
+            if (heapIdx >= 0 && javaCounterResults[heapIdx] && javaCounterResults[heapIdx].byObj) {
+                const d = javaCounterResults[heapIdx].byObj[shortName];
+                if (d && d.values.length > 0) {
+                    stats.avgHeap = Number((d.values.reduce((s, v) => s + v, 0) / d.values.length).toFixed(1));
+                    stats.maxHeap = Number(max(d.values).toFixed(1));
+                }
+            }
+            if (gcCountIdx >= 0 && javaCounterResults[gcCountIdx] && javaCounterResults[gcCountIdx].byObj) {
+                const d = javaCounterResults[gcCountIdx].byObj[shortName];
+                if (d && d.values.length > 0) {
+                    stats.gcTotalCount = Math.round(d.values.reduce((s, v) => s + v, 0));
+                }
+            }
+            if (gcTimeIdx >= 0 && javaCounterResults[gcTimeIdx] && javaCounterResults[gcTimeIdx].byObj) {
+                const d = javaCounterResults[gcTimeIdx].byObj[shortName];
+                if (d && d.values.length > 0) {
+                    stats.gcTotalTime = Math.round(d.values.reduce((s, v) => s + v, 0));
+                }
+            }
+            return stats;
+        }
+
+        // ── 영역 1: 전체 총괄 ──
+        rows.push(['[ 전체 총괄 ]']);
+        rows.push(['항목', '값']);
+        rows.push(['측정 기간', formatTimeMs(minTime) + ' ~ ' + formatTimeMs(maxTime)]);
+        rows.push(['총 트랜잭션', totalCount]);
+        rows.push(['평균 TPS', Number(calcTPS(totalCount, minTime, maxTime).toFixed(1))]);
+        rows.push(['평균응답(ms)', Math.round(allElapsed.reduce((s, v) => s + v, 0) / totalCount)]);
+        rows.push(['P50(ms)', Math.round(percentile(allElapsed, 50))]);
+        rows.push(['P90(ms)', Math.round(percentile(allElapsed, 90))]);
+        rows.push(['P95(ms)', Math.round(percentile(allElapsed, 95))]);
+        rows.push(['P99(ms)', Math.round(percentile(allElapsed, 99))]);
+        rows.push(['최대응답(ms)', allElapsed[allElapsed.length - 1]]);
+        rows.push(['에러건수', errorCount]);
+        rows.push(['에러율(%)', Number((errorCount / totalCount * 100).toFixed(2))]);
+        rows.push(['N+1 의심', n1Count]);
+        rows.push(['SQL병목', sqlBottleneckCount]);
+
+        // ── 영역 2: 인스턴스별 요약 ──
+        rows.push([]);
+        rows.push(['[ 인스턴스별 요약 ]']);
+        rows.push(['인스턴스', '건수', 'TPS', '평균응답(ms)', 'P95(ms)', 'P99(ms)', '최대응답(ms)', '에러수', '에러율(%)', '평균SQL건수', '평균SQL시간(ms)',
+            '평균CPU(%)', '최대CPU(%)', '평균Heap(MB)', '최대Heap(MB)', 'GC총횟수', 'GC총시간(ms)']);
+
+        const byInstance = {};
+        xlogPoints.forEach(p => {
+            const name = p.objName || '(unknown)';
+            if (!byInstance[name]) byInstance[name] = [];
+            byInstance[name].push(p);
+        });
+
+        Object.keys(byInstance).sort().forEach(name => {
+            const pts = byInstance[name];
+            const elapsed = pts.map(p => p.y).sort((a, b) => a - b);
+            const cnt = pts.length;
+            const errs = pts.filter(p => p.error || p.color === 'rgba(0,0,0,0.7)').length;
+            const avgSqlCount = cnt > 0 ? Number((pts.reduce((s, p) => s + (p.sqlCount || 0), 0) / cnt).toFixed(1)) : 0;
+            const avgSqlTime = cnt > 0 ? Math.round(pts.reduce((s, p) => s + (p.sqlTime || 0), 0) / cnt) : 0;
+            const cs = getInstanceCounterStats(name);
+            rows.push([
+                name, cnt,
+                Number(calcTPS(cnt, minTime, maxTime).toFixed(1)),
+                Math.round(elapsed.reduce((s, v) => s + v, 0) / cnt),
+                Math.round(percentile(elapsed, 95)),
+                Math.round(percentile(elapsed, 99)),
+                elapsed[elapsed.length - 1],
+                errs, Number((errs / cnt * 100).toFixed(2)),
+                avgSqlCount, avgSqlTime,
+                cs.avgCpu, cs.maxCpu, cs.avgHeap, cs.maxHeap, cs.gcTotalCount, cs.gcTotalTime
+            ]);
+        });
+
+        // ── 영역 3: 서비스별 요약 ──
+        rows.push([]);
+        rows.push(['[ 서비스별 요약 ]']);
+        rows.push(['서비스명', '건수', '평균응답(ms)', 'P95(ms)', 'P99(ms)', '최대응답(ms)', '에러수', '에러율(%)', 'N+1', 'SQL병목']);
+
+        const byService = {};
+        xlogPoints.forEach(p => {
+            const svc = p.service || '(unknown)';
+            if (!byService[svc]) byService[svc] = [];
+            byService[svc].push(p);
+        });
+
+        Object.entries(byService)
+            .sort((a, b) => b[1].length - a[1].length)
+            .forEach(([svc, pts]) => {
+                const elapsed = pts.map(p => p.y).sort((a, b) => a - b);
+                const cnt = pts.length;
+                const errs = pts.filter(p => p.error || p.color === 'rgba(0,0,0,0.7)').length;
+                const n1 = pts.filter(p => (p.sqlCount || 0) >= n1Threshold).length;
+                const sqlBn = pts.filter(p => p.y >= 3000 && (p.sqlTime || 0) > 0 && ((p.sqlTime || 0) / p.y) >= 0.98).length;
+                rows.push([
+                    svc, cnt,
+                    Math.round(elapsed.reduce((s, v) => s + v, 0) / cnt),
+                    Math.round(percentile(elapsed, 95)),
+                    Math.round(percentile(elapsed, 99)),
+                    elapsed[elapsed.length - 1],
+                    errs, Number((errs / cnt * 100).toFixed(2)),
+                    n1, sqlBn
+                ]);
+            });
+
+        // ── 영역 4: 응답시간 분포 ──
+        rows.push([]);
+        rows.push(['[ 응답시간 분포 ]']);
+        rows.push(['구간', '건수', '비율(%)']);
+
+        const bands = [
+            { label: '~500ms', max: 500 },
+            { label: '500ms~1s', max: 1000 },
+            { label: '1s~3s', max: 3000 },
+            { label: '3s~5s', max: 5000 },
+            { label: '5s~', max: Infinity }
+        ];
+        let prevMax = 0;
+        bands.forEach(b => {
+            const cnt = xlogPoints.filter(p => p.y > prevMax && (b.max === Infinity ? true : p.y <= b.max)).length;
+            rows.push([b.label, cnt, Number((cnt / totalCount * 100).toFixed(2))]);
+            prevMax = b.max;
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [
+            { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 10 },
+            { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 },
+            { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 14 }
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, 'Scouter요약');
+    }
+
+    // ==================== JTL 파싱 (비활성화 — 별도 활용 예정) ====================
+    /*
+    function parseJtlFile(csvText) {
+        const lines = csvText.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) return { headers: [], rows: [] };
+        const headers = lines[0].split(',');
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+            const vals = lines[i].split(',');
+            if (vals.length < headers.length) continue;
+            const obj = {};
+            headers.forEach((h, idx) => { obj[h.trim()] = vals[idx]; });
+            rows.push(obj);
+        }
+        return { headers, rows };
+    }
+    */
+
+    // ==================== JMeter 데이터 시트 (비활성화) ====================
+    /*
+    function buildJMeterDataSheet(wb, jtlRows) {
+        const header = ['시간', 'Label', '응답시간(ms)', 'HTTP상태', '성공', '수신bytes', '송신bytes', '스레드수', 'Latency(ms)', 'Connect(ms)'];
+        const dataRows = jtlRows.map(r => [
+            formatTimeMs(Number(r.timeStamp)),
+            r.label || '',
+            Number(r.elapsed) || 0,
+            r.responseCode || '',
+            r.success === 'true' ? 'Y' : 'N',
+            Number(r.bytes) || 0,
+            Number(r.sentBytes) || 0,
+            Number(r.allThreads) || 0,
+            Number(r.Latency) || 0,
+            Number(r.Connect) || 0
+        ]);
+        const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
+        ws['!cols'] = [
+            { wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 }, { wch: 6 },
+            { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 12 }
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, 'JMeter데이터');
+    }
+    */
+
+    // ==================== JMeter 요약 시트 (비활성화) ====================
+    /*
+    function buildJMeterSummarySheet(wb, jtlRows) {
+        if (!jtlRows || jtlRows.length === 0) return;
+        const rows = [];
+
+        const allElapsed = jtlRows.map(r => Number(r.elapsed) || 0).sort((a, b) => a - b);
+        const timestamps = jtlRows.map(r => Number(r.timeStamp));
+        const minTime = min(timestamps);
+        const maxTime = max(timestamps);
+        const totalCount = jtlRows.length;
+        const errorCount = jtlRows.filter(r => r.success !== 'true').length;
+        const totalBytes = jtlRows.reduce((s, r) => s + (Number(r.bytes) || 0), 0);
+        const totalSent = jtlRows.reduce((s, r) => s + (Number(r.sentBytes) || 0), 0);
+        const avgLatency = Math.round(jtlRows.reduce((s, r) => s + (Number(r.Latency) || 0), 0) / totalCount);
+        const avgConnect = Math.round(jtlRows.reduce((s, r) => s + (Number(r.Connect) || 0), 0) / totalCount);
+
+        // ── 영역 1: 전체 총괄 ──
+        rows.push(['[ 전체 총괄 ]']);
+        rows.push(['항목', '값']);
+        rows.push(['측정 기간', formatTimeMs(minTime) + ' ~ ' + formatTimeMs(maxTime)]);
+        rows.push(['총 요청수', totalCount]);
+        rows.push(['평균 TPS', Number(calcTPS(totalCount, minTime, maxTime).toFixed(1))]);
+        rows.push(['평균응답(ms)', Math.round(allElapsed.reduce((s, v) => s + v, 0) / totalCount)]);
+        rows.push(['P50(ms)', Math.round(percentile(allElapsed, 50))]);
+        rows.push(['P90(ms)', Math.round(percentile(allElapsed, 90))]);
+        rows.push(['P95(ms)', Math.round(percentile(allElapsed, 95))]);
+        rows.push(['P99(ms)', Math.round(percentile(allElapsed, 99))]);
+        rows.push(['최대응답(ms)', allElapsed[allElapsed.length - 1]]);
+        rows.push(['에러건수', errorCount]);
+        rows.push(['에러율(%)', Number((errorCount / totalCount * 100).toFixed(2))]);
+        rows.push(['평균 Latency(ms)', avgLatency]);
+        rows.push(['평균 Connect(ms)', avgConnect]);
+        rows.push(['총 수신(bytes)', totalBytes]);
+        rows.push(['총 송신(bytes)', totalSent]);
+
+        // ── 영역 2: Label별 요약 ──
+        rows.push([]);
+        rows.push(['[ Label별 요약 ]']);
+        rows.push(['Label', '건수', 'TPS', '평균응답(ms)', 'P95(ms)', 'P99(ms)', '최대응답(ms)', '에러수', '에러율(%)', '평균Latency(ms)']);
+
+        const byLabel = {};
+        jtlRows.forEach(r => {
+            const label = r.label || '(unknown)';
+            if (!byLabel[label]) byLabel[label] = [];
+            byLabel[label].push(r);
+        });
+
+        Object.entries(byLabel)
+            .sort((a, b) => b[1].length - a[1].length)
+            .forEach(([label, items]) => {
+                const elapsed = items.map(r => Number(r.elapsed) || 0).sort((a, b) => a - b);
+                const cnt = items.length;
+                const errs = items.filter(r => r.success !== 'true').length;
+                const avgLat = Math.round(items.reduce((s, r) => s + (Number(r.Latency) || 0), 0) / cnt);
+                rows.push([
+                    label, cnt,
+                    Number(calcTPS(cnt, minTime, maxTime).toFixed(1)),
+                    Math.round(elapsed.reduce((s, v) => s + v, 0) / cnt),
+                    Math.round(percentile(elapsed, 95)),
+                    Math.round(percentile(elapsed, 99)),
+                    elapsed[elapsed.length - 1],
+                    errs, Number((errs / cnt * 100).toFixed(2)),
+                    avgLat
+                ]);
+            });
+
+        // ── 영역 3: 응답시간 분포 ──
+        rows.push([]);
+        rows.push(['[ 응답시간 분포 ]']);
+        rows.push(['구간', '건수', '비율(%)']);
+
+        const bands = [
+            { label: '~500ms', max: 500 },
+            { label: '500ms~1s', max: 1000 },
+            { label: '1s~3s', max: 3000 },
+            { label: '3s~5s', max: 5000 },
+            { label: '5s~', max: Infinity }
+        ];
+        let prevMax = 0;
+        bands.forEach(b => {
+            const cnt = jtlRows.filter(r => {
+                const e = Number(r.elapsed) || 0;
+                return e > prevMax && (b.max === Infinity ? true : e <= b.max);
+            }).length;
+            rows.push([b.label, cnt, Number((cnt / totalCount * 100).toFixed(2))]);
+            prevMax = b.max;
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [
+            { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 10 },
+            { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 14 }
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, 'JMeter요약');
+    }
+    */
+
+    // ==================== 엑셀 내보내기 (기존 — 빌더 함수 사용) ====================
+    function exportExcel() {
+        if (!XLSX) { alert('SheetJS 라이브러리가 로드되지 않았습니다.'); return; }
+
+        const wb = XLSX.utils.book_new();
+        const dateStr = document.getElementById('reportDateInput').value;
+
+        // XLog 시트
+        const txidRowMap = buildXLogSheet(wb, xlogDataPoints);
+
+        // 통합 시트 (Java 선택 시만)
+        if (lastCounterResults && lastCounters && !lastIsHost) {
+            buildIntegrationSheet(wb, xlogDataPoints, lastCounterResults, lastCounters, txidRowMap);
+        }
+
+        const stVal = document.getElementById('reportStartTime').value;
+        const etVal = document.getElementById('reportEndTime').value;
+        const timeSuffix = (stVal === '00:00' && etVal === '23:59') ? '' : '_' + stVal.replace(':', '') + '-' + etVal.replace(':', '');
+        const fileName = 'scouter-report-' + dateStr + timeSuffix + '.xlsx';
+        XLSX.writeFile(wb, fileName);
+    }
+
+    // ==================== 엑셀 전체 다운로드 ====================
+    async function exportExcelAll() {
+        if (!XLSX) { alert('SheetJS 라이브러리가 로드되지 않았습니다.'); return; }
+
+        // JTL 기능 비활성화 — 별도 활용 예정
+        /*
+        const includeJtl = confirm('JTL 파일을 포함하시겠습니까?\n\n예: JMeter JTL 결과 파일을 선택하여 JMeter 데이터/요약 시트를 함께 생성합니다.\n아니요: Scouter 데이터 + 요약만 생성합니다.');
+
+        let jtlData = null;
+        if (includeJtl) {
+            jtlData = await new Promise((resolve) => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.jtl,.csv';
+                input.onchange = function() {
+                    const file = input.files[0];
+                    if (!file) { resolve(null); return; }
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const parsed = parseJtlFile(e.target.result);
+                        if (parsed.rows.length === 0) {
+                            alert('JTL 파일에 데이터가 없습니다.');
+                            resolve(null);
+                        } else {
+                            resolve(parsed);
+                        }
+                    };
+                    reader.readAsText(file);
+                };
+                input.click();
+                // 파일 선택 취소 감지 (focus 복귀 후 파일 없으면 취소)
+                window.addEventListener('focus', function onFocus() {
+                    window.removeEventListener('focus', onFocus);
+                    setTimeout(() => { if (!input.files || input.files.length === 0) resolve(null); }, 500);
+                });
+            });
+            if (!jtlData) {
+                // JTL 선택 취소 시에도 Scouter만으로 진행
+            }
+        }
+        */
+        const jtlData = null;
+
+        const status = document.getElementById('statusMsg');
+        const dateInput = document.getElementById('reportDateInput');
+        const dateStr = dateInput.value;
+        const parts = dateStr.split('-');
+        const year = Number(parts[0]), month = Number(parts[1]) - 1, day = Number(parts[2]);
+        const [startH, startM] = document.getElementById('reportStartTime').value.split(':').map(Number);
+        const [endH, endM] = document.getElementById('reportEndTime').value.split(':').map(Number);
+        const startTime = new Date(year, month, day, startH, startM, 0).getTime();
+        const endTime = new Date(year, month, day, endH, endM, 59).getTime();
+        const yyyymmdd = parts.join('');
+
+        // Java/Host 오브젝트 자동 분류
+        const javaObjs = objectsCache.filter(o => o.objFamily !== 'host');
+        const hostObjs = objectsCache.filter(o => o.objFamily === 'host');
+
+        if (javaObjs.length === 0 && hostObjs.length === 0) {
+            status.textContent = 'Object가 없습니다. Scouter 연결을 확인하세요.';
+            status.style.color = '#e74c3c';
+            return;
+        }
+
+        // 프로그레스 바 초기화
+        const progressWrap = document.getElementById('progressWrap');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const progressPct = document.getElementById('progressPct');
+        progressWrap.classList.add('show');
+        progressFill.style.width = '0%';
+        progressText.textContent = '준비 중...';
+        progressPct.textContent = '0%';
+        function updateProgress(pct, text) {
+            progressFill.style.width = pct + '%';
+            progressText.textContent = text;
+            progressPct.textContent = Math.round(pct) + '%';
+        }
+
+        // 전체 단계 계산: Java카운터(10%) + XLog(60%) + 서비스명변환(5%) + Host카운터(10%) + 엑셀생성(10%) + 저장(5%)
+        try {
+            const wb = XLSX.utils.book_new();
+            const javaCounters = getAllCounters(JAVA_GROUPS);
+            const hostCounters = getAllCounters(HOST_GROUPS);
+
+            // ── Java 데이터 수집 ──
+            let javaCounterResults = [];
+            let allXlogPoints = [];
+
+            if (javaObjs.length > 0) {
+                const javaHashes = javaObjs.map(o => o.objHash).join(',');
+                updateProgress(2, 'Java 카운터 수집 중...');
+
+                javaCounterResults = await Promise.all(
+                    javaCounters.map(c => fetchCounter(javaHashes, c.key, startTime, endTime))
+                );
+                updateProgress(10, 'Java 카운터 완료');
+
+                // XLog 수집 (커서 기반 페이지네이션)
+                let allXlogs = [];
+                const sid = await getServerId();
+                const CHUNK = 5 * 60 * 1000; // 5분 단위 시간 분할 (fetchXlogChunk 내부에서 커서 페이지네이션)
+                const totalChunks = Math.ceil((endTime - startTime) / CHUNK);
+                let chunkIdx = 0;
+
+                for (let t = startTime; t < endTime; t += CHUNK) {
+                    chunkIdx++;
+                    const chunkPct = 10 + (chunkIdx / totalChunks) * 60;
+                    const timeLabel = new Date(t).getHours() + ':' + String(new Date(t).getMinutes()).padStart(2, '0');
+                    updateProgress(chunkPct, 'XLog 수집 중... (' + timeLabel + ', ' + allXlogs.length + '건)');
+
+                    const chunkEnd = Math.min(t + CHUNK, endTime);
+                    try {
+                        const xlogs = await fetchXlogChunk(javaHashes, yyyymmdd, t, chunkEnd, sid);
+                        xlogs.forEach(x => {
+                            const et = Number(x.endTime);
+                            if (et >= startTime && et <= endTime) allXlogs.push(x);
+                        });
+                        // 수집 상한 없음 — 전체 수집
+                    } catch (e) { /* continue */ }
+                }
+
+                // 서비스명 변환
+                updateProgress(72, '서비스명 변환 중... (' + allXlogs.length + '건)');
+                await resolveServiceNames(allXlogs, yyyymmdd);
+
+                // XLog → dataPoints 변환
+                updateProgress(75, 'XLog 데이터 변환 중...');
+                allXlogPoints = allXlogs.map(x => {
+                    const elapsed = Number(x.elapsed);
+                    const error = x.error && Number(x.error) !== 0;
+                    let color;
+                    if (error) color = 'rgba(0,0,0,0.7)';
+                    else if (elapsed > 3000) color = 'rgba(231,76,60,0.7)';
+                    else if (elapsed > 1000) color = 'rgba(243,156,18,0.7)';
+                    else color = 'rgba(52,152,219,0.5)';
+                    return {
+                        x: Number(x.endTime), y: elapsed, color,
+                        error: error,
+                        errorMessage: x.errorMessage || '',
+                        service: x.serviceName || x.service || '',
+                        txid: x.txid, sqlCount: Number(x.sqlCount) || 0,
+                        sqlTime: Number(x.sqlTime) || 0,
+                        apicallCount: Number(x.apicallCount) || 0,
+                        apicallTime: Number(x.apicallTime) || 0,
+                        objName: x.objName || ''
+                    };
+                });
+            }
+
+            // ── Host 데이터 수집 ──
+            let hostCounterResults = [];
+            if (hostObjs.length > 0) {
+                const hostHashes = hostObjs.map(o => o.objHash).join(',');
+                updateProgress(78, 'Host 카운터 수집 중...');
+                hostCounterResults = await Promise.all(
+                    hostCounters.map(c => fetchCounter(hostHashes, c.key, startTime, endTime))
+                );
+            }
+
+            // ── 엑셀 시트 생성 ──
+            updateProgress(85, '엑셀 시트 생성 중... (XLog ' + allXlogPoints.length + '건)');
+            await new Promise(r => setTimeout(r, 0)); // UI 스레드 양보
+
+            // XLog 시트
+            const txidRowMap = buildXLogSheet(wb, allXlogPoints);
+
+            updateProgress(88, 'Java 카운터 시트 생성 중...');
+            await new Promise(r => setTimeout(r, 0));
+
+            // Java카운터 시트 (합쳐진 데이터 — 기존 호환)
+            if (javaCounterResults.length > 0) {
+                buildCounterSheet(wb, 'Java카운터', javaCounterResults,
+                    javaCounters.map(c => c.key),
+                    javaCounters.map(c => c.label));
+                // 인스턴스별 Java카운터 시트 (2개 이상일 때만)
+                buildCounterSheetByInstance(wb, 'Java카운터', javaCounterResults,
+                    javaCounters.map(c => c.key),
+                    javaCounters.map(c => c.label));
+            }
+
+            // Host카운터 시트 (합쳐진 데이터 — 기존 호환)
+            if (hostCounterResults.length > 0) {
+                buildCounterSheet(wb, 'Host카운터', hostCounterResults,
+                    hostCounters.map(c => c.key),
+                    hostCounters.map(c => c.label));
+                // 인스턴스별 Host카운터 시트 (2개 이상일 때만)
+                buildCounterSheetByInstance(wb, 'Host카운터', hostCounterResults,
+                    hostCounters.map(c => c.key),
+                    hostCounters.map(c => c.label));
+            }
+
+            updateProgress(92, '통합 시트 생성 중...');
+            await new Promise(r => setTimeout(r, 0));
+
+            // 통합 시트 — 비활성화 (±10초 윈도우 중복 매칭으로 트랜잭션수 부풀림 이슈, Scouter 요약 시트로 대체)
+            /*
+            if (javaCounterResults.length > 0) {
+                buildIntegrationSheet(wb, allXlogPoints, javaCounterResults, javaCounters, txidRowMap);
+                // 인스턴스별 통합 시트 (2개 이상일 때만)
+                buildIntegrationSheetByInstance(wb, allXlogPoints, javaCounterResults, javaCounters, txidRowMap);
+            }
+            */
+
+            // Scouter 요약 시트 (인스턴스별 카운터 지표 포함)
+            updateProgress(93, 'Scouter 요약 시트 생성 중...');
+            await new Promise(r => setTimeout(r, 0));
+            buildScouterSummarySheet(wb, allXlogPoints, javaCounterResults, javaCounters);
+
+            // JMeter 시트 (비활성화)
+            /*
+            if (jtlData && jtlData.rows.length > 0) {
+                updateProgress(94, 'JMeter 시트 생성 중...');
+                await new Promise(r => setTimeout(r, 0));
+                buildJMeterDataSheet(wb, jtlData.rows);
+                buildJMeterSummarySheet(wb, jtlData.rows);
+            }
+            */
+
+            // ── 저장 ──
+            updateProgress(95, '엑셀 파일 저장 중...');
+            await new Promise(r => setTimeout(r, 0));
+
+            const stVal = document.getElementById('reportStartTime').value;
+            const etVal = document.getElementById('reportEndTime').value;
+            const timeSuffix = (stVal === '00:00' && etVal === '23:59') ? '' : '_' + stVal.replace(':', '') + '-' + etVal.replace(':', '');
+            const fileName = 'scouter-all-' + dateStr + timeSuffix + '.xlsx';
+            if (window.showSaveFilePicker) {
+                try {
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: fileName,
+                        types: [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+                    });
+                    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                    const writable = await handle.createWritable();
+                    await writable.write(new Uint8Array(wbout));
+                    await writable.close();
+                } catch (e) {
+                    if (e.name === 'AbortError') {
+                        updateProgress(0, '저장 취소됨');
+                        setTimeout(() => progressWrap.classList.remove('show'), 1500);
+                        return;
+                    }
+                    XLSX.writeFile(wb, fileName);
+                }
+            } else {
+                XLSX.writeFile(wb, fileName);
+            }
+
+            updateProgress(100, '엑셀 다운로드 완료! XLog ' + allXlogPoints.length + '건');
+            setTimeout(() => progressWrap.classList.remove('show'), 3000);
+
+        } catch (e) {
+            updateProgress(0, '오류: ' + e.message);
+            progressFill.style.background = '#e74c3c';
+            setTimeout(() => {
+                progressWrap.classList.remove('show');
+                progressFill.style.background = '';
+            }, 3000);
+        }
+    }
+
+    // ==================== 엑셀 기반 차트 생성 ====================
+    function loadExcelAndRender() {
+        document.getElementById('excelFileInput').click();
+    }
+
+    function handleExcelFile(input) {
+        const file = input.files[0];
+        if (!file) return;
+        input.value = '';
+
+        const status = document.getElementById('statusMsg');
+        status.textContent = '엑셀 파일 읽는 중...';
+        status.style.color = '#4a90d9';
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+
+                // 날짜 복원: 파일명에서 추출 시도, 실패 시 reportDateInput 사용
+                let reportDate = document.getElementById('reportDateInput').value;
+                const dateMatch = file.name.match(/(\d{4}-\d{2}-\d{2})/);
+                if (dateMatch) reportDate = dateMatch[1];
+
+                const dateParts = reportDate.split('-');
+                const baseDate = new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]));
+                const baseDateMs = baseDate.getTime();
+
+                // ── XLog 시트 파싱 ──
+                let allXlogPoints = [];
+                if (workbook.SheetNames.includes('XLog')) {
+                    const ws = workbook.Sheets['XLog'];
+                    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    // 첫 행은 헤더, 스킵
+                    for (let i = 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || row.length < 4) continue;
+                        const timeStr = String(row[0] || '');
+                        const elapsed = Number(row[3]) || 0;
+                        const isError = String(row[9]) === 'Y';
+                        let color;
+                        if (isError) color = 'rgba(0,0,0,0.7)';
+                        else if (elapsed > 3000) color = 'rgba(231,76,60,0.7)';
+                        else if (elapsed > 1000) color = 'rgba(243,156,18,0.7)';
+                        else color = 'rgba(52,152,219,0.5)';
+
+                        allXlogPoints.push({
+                            x: parseTimeToEpoch(timeStr, baseDateMs),
+                            y: elapsed,
+                            color: color,
+                            error: isError,
+                            service: String(row[2] || ''),
+                            objName: String(row[1] || ''),
+                            txid: String(row[4] || ''),
+                            sqlCount: Number(row[5]) || 0,
+                            sqlTime: Number(row[6]) || 0,
+                            apicallCount: Number(row[7]) || 0,
+                            apicallTime: Number(row[8]) || 0,
+                            errorMessage: String(row[10] || '')
+                        });
+                    }
+                }
+
+                // ── Java카운터 시트 파싱 ──
+                const javaCounters = getAllCounters(JAVA_GROUPS);
+                let javaCounterResults = [];
+                if (workbook.SheetNames.includes('Java카운터')) {
+                    javaCounterResults = parseCounterSheet(workbook.Sheets['Java카운터'], javaCounters, baseDateMs);
+                }
+
+                // ── Host카운터 시트 파싱 ──
+                const hostCounters = getAllCounters(HOST_GROUPS);
+                let hostCounterResults = [];
+                if (workbook.SheetNames.includes('Host카운터')) {
+                    hostCounterResults = parseCounterSheet(workbook.Sheets['Host카운터'], hostCounters, baseDateMs);
+                }
+
+                // ── XLog 다운샘플링 ──
+                const MAX_XLOG_RENDER = 50000;
+                let xlogForChart = allXlogPoints;
+                let downsampleMsg = '';
+                if (allXlogPoints.length > MAX_XLOG_RENDER) {
+                    const important = allXlogPoints.filter(p => p.y > 3000 || p.color === 'rgba(0,0,0,0.7)');
+                    const rest = allXlogPoints.filter(p => p.y <= 3000 && p.color !== 'rgba(0,0,0,0.7)');
+                    const sampleCount = MAX_XLOG_RENDER - important.length;
+                    const sampled = shuffle(rest).slice(0, Math.max(0, sampleCount));
+                    xlogForChart = [...important, ...sampled].sort((a, b) => a.x - b.x);
+                    downsampleMsg = ' (' + allXlogPoints.length + '건 중 ' + xlogForChart.length + '건 표시)';
+                }
+
+                // ── 리포트 렌더링 ──
+                document.getElementById('reportDate').textContent = reportDate + ' Performance Report (엑셀 기반)';
+                renderReportFromData(javaCounterResults, javaCounters, JAVA_GROUPS, hostCounterResults, hostCounters, HOST_GROUPS, xlogForChart, allXlogPoints);
+
+                status.textContent = '엑셀 기반 리포트 생성 완료!' + downsampleMsg;
+                status.style.color = '#27ae60';
+
+            } catch (err) {
+                status.textContent = '엑셀 파싱 오류: ' + err.message;
+                status.style.color = '#e74c3c';
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    function parseTimeToEpoch(timeStr, baseDateMs) {
+        // "HH:mm:ss.SSS" → epoch ms
+        const parts = timeStr.split(':');
+        if (parts.length < 3) return baseDateMs;
+        const h = Number(parts[0]) || 0;
+        const m = Number(parts[1]) || 0;
+        const secParts = parts[2].split('.');
+        const s = Number(secParts[0]) || 0;
+        const ms = Number(secParts[1]) || 0;
+        return baseDateMs + h * 3600000 + m * 60000 + s * 1000 + ms;
+    }
+
+    function parseCounterSheet(ws, counters, baseDateMs) {
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        if (rows.length < 2) return counters.map(() => ({ times: [], values: [] }));
+
+        const header = rows[0];
+        // 각 카운터의 컬럼 인덱스 매핑 (label 기준)
+        const colMap = {};
+        counters.forEach(c => {
+            const idx = header.indexOf(c.label);
+            if (idx >= 0) colMap[c.key] = idx;
+        });
+
+        return counters.map(c => {
+            const colIdx = colMap[c.key];
+            if (colIdx == null) return { times: [], values: [] };
+            const times = [], values = [];
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row || !row[0]) continue;
+                const t = parseTimeToEpoch(String(row[0]), baseDateMs);
+                const v = Number(row[colIdx]);
+                if (!isNaN(v)) {
+                    times.push(t);
+                    values.push(v);
+                }
+            }
+            return { times, values };
+        });
+    }
+
+    function shuffle(arr) {
+        const a = [...arr];
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+
+    function renderReportFromData(javaCounterResults, javaCounters, javaGroups, hostCounterResults, hostCounters, hostGroups, xlogForChart, allXlogPoints) {
+        let html = '';
+
+        // XLog 건수 기반 TPS/ServiceCount 계산 (Excel 모드)
+        var xlogTpsInfo = null;
+        if (allXlogPoints && allXlogPoints.length > 0) {
+            var xMinT = allXlogPoints[0].x, xMaxT = allXlogPoints[0].x;
+            for (var xi = 1; xi < allXlogPoints.length; xi++) {
+                if (allXlogPoints[xi].x < xMinT) xMinT = allXlogPoints[xi].x;
+                if (allXlogPoints[xi].x > xMaxT) xMaxT = allXlogPoints[xi].x;
+            }
+            var xDurSec = (xMaxT - xMinT) / 1000;
+            var xTotalCount = allXlogPoints.length;
+            var xByInst = {};
+            allXlogPoints.forEach(function(p) {
+                var n = (p.objName || '(unknown)').split('/').pop();
+                if (!xByInst[n]) xByInst[n] = 0;
+                xByInst[n]++;
+            });
+            var xInstNames = Object.keys(xByInst).sort();
+            var xInstDetail = xInstNames.map(function(n) { return n + ' ' + xByInst[n] + '건'; }).join(' + ');
+            xlogTpsInfo = { count: xTotalCount, durSec: xDurSec, tps: xDurSec > 0 ? xTotalCount / xDurSec : 0, perMin: xDurSec > 0 ? xTotalCount / (xDurSec / 60) : 0, instDetail: xInstDetail };
+        }
+
+        // ── Java 섹션 ──
+        if (javaCounterResults.length > 0) {
+            // 요약 카드
+            html += '<div class="section-title"><span class="section-badge java">JAVA</span>전체 요약</div>';
+            html += '<div class="summary-cards">';
+            javaCounters.forEach((c, i) => {
+                const isXlogBased = (c.key === 'TPS' || c.key === 'ServiceCount') && xlogTpsInfo;
+                var displayVal, helpText;
+                if (isXlogBased && c.key === 'TPS') {
+                    displayVal = xlogTpsInfo.tps.toFixed(1);
+                    helpText = c.help + '\n\n산출: 총 ' + xlogTpsInfo.count + '건 ÷ ' + Math.round(xlogTpsInfo.durSec) + '초 = ' + xlogTpsInfo.tps.toFixed(1) + ' TPS (XLog 건수 기반)\n내역: ' + xlogTpsInfo.instDetail;
+                } else if (isXlogBased && c.key === 'ServiceCount') {
+                    displayVal = xlogTpsInfo.perMin.toFixed(1);
+                    helpText = c.help + '\n\n산출: 총 ' + xlogTpsInfo.count + '건 ÷ ' + (xlogTpsInfo.durSec / 60).toFixed(1) + '분 = ' + xlogTpsInfo.perMin.toFixed(1) + ' cnt/min (XLog 건수 기반)\n내역: ' + xlogTpsInfo.instDetail;
+                } else {
+                    const result = calcSummaryValue(javaCounterResults[i], c.aggregate);
+                    displayVal = result.value ? result.value.toFixed(1) : '-';
+                    helpText = c.help + (result.detail ? '\n\n산출: ' + result.detail : '');
+                }
+                html += '<div class="card"><div class="label">' + c.label + ' ' + helpIcon(helpText) + '</div>';
+                html += '<div class="value">' + displayVal + '</div>';
+                html += '<div class="unit">' + c.unit + '</div></div>';
+            });
+            html += '</div>';
+
+            // 그룹별 차트
+            let idx = 0;
+            javaGroups.forEach(group => {
+                html += '<div class="section-title"><span class="section-badge java">JAVA</span>' + group.name + '</div>';
+                for (let i = 0; i < group.counters.length; i += 2) {
+                    html += '<div class="chart-row">';
+                    for (let j = i; j < Math.min(i + 2, group.counters.length); j++) {
+                        const c = group.counters[j];
+                        html += '<div class="chart-box"><h3>' + c.label + '</h3>';
+                        html += '<div class="chart-stats" id="stats_' + c.key + '"></div>';
+                        html += '<canvas id="chart_' + c.key + '"></canvas></div>';
+                    }
+                    if (group.counters.length - i === 1) html += '<div class="chart-box" style="visibility:hidden;"></div>';
+                    html += '</div>';
+                }
+                idx += group.counters.length;
+            });
+        }
+
+        // ── Host 섹션 ──
+        if (hostCounterResults.length > 0) {
+            html += '<div class="section-title"><span class="section-badge host">HOST</span>전체 요약</div>';
+            html += '<div class="summary-cards">';
+            hostCounters.forEach((c, i) => {
+                const result = calcSummaryValue(hostCounterResults[i], c.aggregate);
+                const helpText = c.help + (result.detail ? '\n\n산출: ' + result.detail : '');
+                html += '<div class="card"><div class="label">' + c.label + ' ' + helpIcon(helpText) + '</div>';
+                html += '<div class="value">' + (result.value ? result.value.toFixed(1) : '-') + '</div>';
+                html += '<div class="unit">' + c.unit + '</div></div>';
+            });
+            html += '</div>';
+
+            let idx = 0;
+            hostGroups.forEach(group => {
+                html += '<div class="section-title"><span class="section-badge host">HOST</span>' + group.name + '</div>';
+                for (let i = 0; i < group.counters.length; i += 2) {
+                    html += '<div class="chart-row">';
+                    for (let j = i; j < Math.min(i + 2, group.counters.length); j++) {
+                        const c = group.counters[j];
+                        html += '<div class="chart-box"><h3>' + c.label + '</h3>';
+                        html += '<div class="chart-stats" id="stats_' + c.key + '_host"></div>';
+                        html += '<canvas id="chart_' + c.key + '_host"></canvas></div>';
+                    }
+                    if (group.counters.length - i === 1) html += '<div class="chart-box" style="visibility:hidden;"></div>';
+                    html += '</div>';
+                }
+                idx += group.counters.length;
+            });
+        }
+
+        // ── XLog 섹션 ──
+        if (xlogForChart.length > 0) {
+            html += '<div class="xlog-section"><div class="chart-row"><div class="chart-box full-width">';
+            html += '<h3>XLog (트랜잭션 분포)</h3>';
+            html += '<div class="chart-stats" id="statsXlog"></div>';
+            html += '<canvas id="chartXlog" height="120"></canvas>';
+            html += '<div class="xlog-legend">';
+            html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(52,152,219,0.7)"></div>빠름 (&lt;1초)</div>';
+            html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(243,156,18,0.7)"></div>보통 (1~3초)</div>';
+            html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(231,76,60,0.7)"></div>느림 (&gt;3초)</div>';
+            html += '<div class="xlog-legend-item"><div class="xlog-legend-dot" style="background:rgba(0,0,0,0.7)"></div>에러</div>';
+            html += '</div></div></div></div>';
+
+            // TXID 조회
+            html += '<div class="chart-row"><div class="chart-box full-width">';
+            html += '<h3>TXID 조회</h3>';
+            html += '<div style="display:flex;gap:8px;align-items:center;">';
+            html += '<input type="text" id="txidSearchInput" placeholder="TXID 입력" onkeydown="if(event.key===\'Enter\')searchByTxid()" style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">';
+            html += '<button onclick="searchByTxid()" style="padding:6px 16px;background:#4a90d9;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">조회</button>';
+            html += '</div><div id="txidSearchResult" style="margin-top:8px;font-size:13px;color:#888;"></div>';
+            html += '</div></div>';
+
+            html += '<div class="chart-row"><div class="chart-box full-width">';
+            html += '<h3>느린 API Top 5</h3>';
+            html += '<table class="slow-api-table"><thead><tr><th>#</th><th>서비스명</th><th>TXID</th><th>응답시간 (ms)</th><th>시작 시간</th><th>종료 시간</th></tr></thead>';
+            html += '<tbody id="slowApiBody"></tbody></table>';
+            html += '</div></div>';
+
+            // Object별 통계 요약
+            html += '<div class="chart-row"><div class="chart-box full-width">';
+            html += '<h3>Object별 통계 요약</h3>';
+            html += '<table class="slow-api-table"><thead><tr><th>Object</th><th>호출수</th><th>평균(ms)</th><th>최대(ms)</th><th>평균SQL건수</th><th>평균SQL시간(ms)</th><th>에러수</th><th>에러율(%)</th></tr></thead>';
+            html += '<tbody id="objectSummaryBody"></tbody></table>';
+            html += '</div></div>';
+
+            // 서비스별 통계 요약
+            html += '<div class="chart-row"><div class="chart-box full-width">';
+            html += '<h3>서비스별 통계 요약</h3>';
+            html += '<table class="slow-api-table"><thead><tr><th>서비스명</th><th>호출수</th><th>평균(ms)</th><th>최대(ms)</th><th>평균SQL건수</th><th>평균SQL시간(ms)</th><th>에러수</th><th>에러율(%)</th></tr></thead>';
+            html += '<tbody id="serviceSummaryBody"></tbody></table>';
+            html += '</div></div>';
+
+            // 에러 분석
+            html += '<div class="chart-row"><div class="chart-box full-width">';
+            html += '<h3>에러 분석</h3>';
+            html += '<table class="slow-api-table"><thead><tr><th>시간</th><th>인스턴스</th><th>서비스명</th><th>TXID</th><th>응답시간(ms)</th><th>에러 메시지</th><th>태그</th></tr></thead>';
+            html += '<tbody id="errorAnalysisBody"></tbody></table>';
+            html += '</div></div>';
+        }
+
+        // DOM 삽입
+        document.getElementById('reportContent').innerHTML = html;
+
+        // 차트 파괴 후 재생성
+        Object.keys(charts).forEach(k => { if (charts[k]) charts[k].destroy(); });
+        charts = {};
+
+        // Java 카운터 차트
+        if (javaCounterResults.length > 0) {
+            let drawIdx = 0;
+            javaGroups.forEach(group => {
+                group.counters.forEach(c => {
+                    const vals = c.transform ? javaCounterResults[drawIdx].values.map(c.transform) : javaCounterResults[drawIdx].values;
+                    showStats('stats_' + c.key, vals, 1, c.unit);
+                    drawChart('chart_' + c.key, c.label + ' (' + c.unit + ')', javaCounterResults[drawIdx], c.color, c.threshold || null, c.transform || null, c.aggregate);
+                    drawIdx++;
+                });
+            });
+        }
+
+        // Host 카운터 차트
+        if (hostCounterResults.length > 0) {
+            let drawIdx = 0;
+            hostGroups.forEach(group => {
+                group.counters.forEach(c => {
+                    const vals = c.transform ? hostCounterResults[drawIdx].values.map(c.transform) : hostCounterResults[drawIdx].values;
+                    showStats('stats_' + c.key + '_host', vals, 1, c.unit);
+                    drawChart('chart_' + c.key + '_host', c.label + ' (' + c.unit + ')', hostCounterResults[drawIdx], c.color, c.threshold || null, c.transform || null, c.aggregate);
+                    drawIdx++;
+                });
+            });
+        }
+
+        // XLog scatter 차트
+        if (xlogForChart.length > 0) {
+            drawXLogChartFromPoints(xlogForChart);
+
+            // 느린 API Top 5 (전체 데이터 기준)
+            const useForSlowApi = allXlogPoints || xlogForChart;
+            updateSlowApiTableFromPoints(useForSlowApi);
+            updateObjectSummaryFromPoints(useForSlowApi);
+            updateServiceSummaryFromPoints(useForSlowApi);
+            updateErrorAnalysisFromPoints(useForSlowApi);
+
+            const statsEl = document.getElementById('statsXlog');
+            if (statsEl) statsEl.textContent = '총 ' + xlogForChart.length + '건';
+        }
+
+        // document.getElementById('btnExcel').disabled = true; // 엑셀 내보내기 버튼 비활성화
+    }
+
+    function drawXLogChartFromPoints(points) {
+        if (charts['chartXlog']) charts['chartXlog'].destroy();
+        const canvas = document.getElementById('chartXlog');
+        if (!canvas) return;
+
+        xlogDataPoints = points;
+
+        charts['chartXlog'] = new Chart(canvas, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    data: points,
+                    pointBackgroundColor: points.map(p => p.color),
+                    pointBorderColor: points.map(p => p.color),
+                    pointRadius: 3, pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                animation: false,
+                onClick: function(evt, elements) {
+                    if (elements.length > 0) {
+                        openProfileModal([points[elements[0].index]]);
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                const p = points[ctx.dataIndex];
+                                const t = new Date(p.x);
+                                const prefix = p.objName ? '[' + p.objName + '] ' : '';
+                                return prefix + p.service + ' | ' + p.y + 'ms | ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds());
+                            }
+                        }
+                    },
+                    annotation: {
+                        annotations: {
+                            thresholdLine: {
+                                type: 'line', yMin: 3000, yMax: 3000,
+                                borderColor: 'rgba(231,76,60,0.5)', borderWidth: 2, borderDash: [6, 4],
+                                label: { display: true, content: '3초', position: 'end', backgroundColor: 'rgba(231,76,60,0.7)', font: { size: 10 } }
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { callback: v => { const d = new Date(v); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }, maxTicksLimit: 12, font: { size: 11 } } },
+                    y: { beginAtZero: true, title: { display: true, text: 'Elapsed (ms)', font: { size: 11 } } }
+                }
+            }
+        });
+
+        setupXLogDrag(canvas);
+    }
+
+    function updateSlowApiTableFromPoints(points) {
+        const tbody = document.getElementById('slowApiBody');
+        if (!tbody) return;
+        if (!points || points.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">데이터 없음</td></tr>';
+            return;
+        }
+        const sorted = [...points].sort((a, b) => b.y - a.y).slice(0, 5);
+        slowApiXlogs = sorted.map(p => ({
+            endTime: p.x, elapsed: p.y, serviceName: p.service,
+            txid: p.txid, sqlCount: p.sqlCount, sqlTime: p.sqlTime || 0,
+            apicallCount: p.apicallCount, apicallTime: p.apicallTime || 0, objName: p.objName
+        }));
+        tbody.innerHTML = sorted.map((p, i) => {
+            const endMs = p.x;
+            const elapsed = p.y;
+            const startMs = endMs - elapsed;
+            const color = elapsed > 3000 ? '#e74c3c' : elapsed > 1000 ? '#f39c12' : '#333';
+            return '<tr><td>' + (i+1) + '</td><td>' + escHtml(p.service || '-')
+                + '</td><td style="font-size:11px;">' + (p.txid || '-')
+                + '</td><td style="color:' + color + ';font-weight:bold;">' + elapsed.toLocaleString()
+                + '</td><td>' + formatTimeMs(startMs)
+                + '</td><td>' + formatTimeMs(endMs) + '</td></tr>';
+        }).join('');
+    }
+</script>
+</body>
+</html>
