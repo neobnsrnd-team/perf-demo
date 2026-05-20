@@ -135,7 +135,7 @@ jmeter\run-scenario.bat 2       시나리오 선택 (Baseline Before)
 | 에러율 | 0.1% 미만인지 |
 | 응답시간 추이 | 시간이 지나도 일정한지 (Endurance) |
 
-JTL 파일(CSV) → 엑셀 또는 `scouter-report-jtl2.html`로 상세 분석 가능
+JTL 파일(CSV) → JMeter Gui에서 리스너 추가 후 분석 또는 `scouter-report-jtl2.html`로 상세 분석 가능
 
 ### Scouter 실시간 모니터링 (병목 추적)
 
@@ -148,14 +148,6 @@ Paper(http://localhost:6180) 에서 확인:
 | TPS 카운터 | 초당 처리량 추이 |
 | CPU / Heap | 서버 리소스 사용률 |
 
-**XLog 점 색상:**
-
-| 색상 | 의미 |
-|------|------|
-| 파랑 | 정상 (1초 이내) |
-| 주황 | 느림 (1~3초) |
-| 빨강 | 매우 느림 (3초+) |
-| 검정 | 에러 |
 
 **프로파일** — 느린 점 클릭 → 트랜잭션 내부 추적:
 
