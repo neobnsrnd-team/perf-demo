@@ -22,4 +22,6 @@ jmeter/results/
 
 # PPT / screenshots (로컬 작업물)
 *.pptx
+!docs/성능테스트_실습_마누스.pptx
 성능테스트 실습/
+성능PPT/
